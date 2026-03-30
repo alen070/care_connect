@@ -19,17 +19,16 @@ export function UserHome({ onNavigate }: Props) {
         const load = async () => {
             if (!user) return;
             try {
-                const [bookings, reports] = await Promise.all([
+                const [bookings, myReports] = await Promise.all([
                     BookingDB.getByUserId(user.id),
-                    ShelterReportDB.getAll() // Note: No getByReporter method exists, filtering in memory
+                    ShelterReportDB.getByReporterId(user.id)
                 ]);
 
                 const ongoingBookings = bookings.filter(b => ['pending', 'accepted', 'ongoing'].includes(b.status));
                 ongoingBookings.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
                 setActiveBookings(ongoingBookings);
 
-                const myReports = reports.filter(r => r.reportedBy === user.id && r.status !== 'resolved');
-                setActiveReports(myReports);
+                setActiveReports(myReports.filter(r => r.status !== 'resolved'));
             } catch (e) {
                 console.error(e);
             } finally {

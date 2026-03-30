@@ -7,12 +7,28 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/store/AuthContext';
-import { Button, Input, Card } from '@/components/ui';
-import { Shield, UserPlus, LogIn, Stethoscope, Users, ShieldCheck, Phone, Mail, ArrowLeft, Building, MapPin, Loader2, Eye, EyeOff } from 'lucide-react';
-import type { UserRole } from '@/types';
-import { cn } from '@/utils/cn';
-import logo from '@/assets/logo.png';
+import { useAuth } from '../../store/AuthContext';
+import { Button, Input, Card } from '../ui';
+import { Shield, UserPlus, LogIn, Stethoscope, Users, ShieldCheck, Phone, Mail, ArrowLeft, Building, MapPin, Loader2, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
+import type { UserRole } from '../../types';
+import { cn } from '../../utils/cn';
+import { validateEmail, validatePhone, checkPasswordStrength } from '../../utils/validation';
+import { PasswordStrengthIndicator } from './PasswordStrengthIndicator';
+import logo from '../../assets/logo.png';
+
+/** Helper for real-time validation feedback */
+function ValidationNotice({ error, value }: { error: string | null; value: string }) {
+  if (!value) return null;
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5 mt-1 text-xs font-medium transition-colors",
+      error ? "text-red-500" : "text-emerald-600"
+    )}>
+      {error ? <AlertCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+      {error || "Looks good!"}
+    </div>
+  );
+}
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register';
@@ -127,31 +143,60 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
 
+  useEffect(() => {
+    // Load saved credentials from registration or "remember me"
+    const savedEmail = localStorage.getItem('login_email');
+    const savedPassword = localStorage.getItem('login_password');
+    if (savedEmail) setEmail(savedEmail);
+    if (savedPassword) setPassword(savedPassword);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setMessage('');
     setSubmitting(true);
+    console.log('[AuthPage] handleSubmit started, loginType:', loginType);
 
     try {
       if (loginType === 'email') {
+        const emailError = validateEmail(email);
+        if (emailError) {
+          setError(emailError);
+          setSubmitting(false);
+          return;
+        }
+        console.log('[AuthPage] Calling login() in AuthContext...');
         const result = await login(email, password);
+        console.log('[AuthPage] login() result:', result);
         if (!result.success) setError(result.error || 'Login failed');
       } else if (loginType === 'phone') {
         if (!showOtp) {
+          const phoneError = validatePhone(phone);
+          if (phoneError) {
+            setError(phoneError);
+            setSubmitting(false);
+            return;
+          }
+          console.log('[AuthPage] Requesting OTP...');
           const result = await loginWithPhone(phone, '');
           if (result.success) {
             setShowOtp(true);
-            setMessage(result.error || 'OTP sent to your phone!');
+            setMessage('OTP sent to your phone!');
           } else {
             setError(result.error || 'Failed to send OTP');
           }
         } else {
+          console.log('[AuthPage] Verifying OTP...');
           const result = await loginWithPhone(phone, otp);
           if (!result.success) setError(result.error || 'Phone login failed');
         }
       }
+    } catch (err: any) {
+      console.error('[AuthPage] handleSubmit catch block:', err);
+      setError(err.message || 'An unexpected error occurred');
     } finally {
+      console.log('[AuthPage] handleSubmit finally block: setting submitting=false');
       setSubmitting(false);
     }
   };
@@ -243,7 +288,15 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
         )}
         {loginType === 'phone' && (
           <>
-            <Input label="Phone Number" type="tel" placeholder="9876543210" value={phone} onChange={e => setPhone(e.target.value)} required disabled={showOtp} />
+            <Input 
+              label="Phone Number" 
+              type="tel" 
+              placeholder="10-digit mobile number" 
+              value={phone} 
+              onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} 
+              required 
+              disabled={showOtp} 
+            />
             {showOtp && (
               <Input label="OTP" type="text" placeholder="Enter 6-digit OTP" value={otp} onChange={e => setOtp(e.target.value)} required maxLength={6} />
             )}
@@ -258,7 +311,12 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
           </div>
         )}
         {loginType !== 'google' && (
-          <Button type="submit" className="w-full" size="lg" disabled={submitting}>
+          <Button 
+            type="submit" 
+            className="w-full" 
+            size="lg" 
+            disabled={submitting || (loginType === 'email' && !email.includes('@'))}
+          >
             {submitting ? 'Signing in...' : loginType === 'phone' && !showOtp ? 'Send OTP' : 'Sign In'}
           </Button>
         )}
@@ -299,6 +357,8 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
               setError('');
               setMessage('');
               if (!resetEmail) { setError('Please enter your email'); return; }
+              const emailError = validateEmail(resetEmail);
+              if (emailError) { setError(emailError); return; }
               setSubmitting(true);
               try {
                 const result = await resetPassword(resetEmail);
@@ -334,10 +394,12 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
   const [form, setForm] = useState({
     name: '', email: '', password: '', phone: '', location: '', role: 'user' as UserRole,
     shelterName: '', shelterAddress: '', shelterLat: '', shelterLng: '', shelterCapacity: '',
+    specialization: '', experience: '', baseRate: '',
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [detectingLocation, setDetectingLocation] = useState(false);
 
@@ -374,27 +436,74 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
-    if (form.password.length < 6) { setError('Password must be at least 6 characters'); return; }
+
+    const emailError = validateEmail(form.email);
+    if (emailError) {
+      setError(emailError);
+      return;
+    }
+
+    const phoneError = validatePhone(form.phone);
+    if (phoneError) {
+      setError(phoneError);
+      return;
+    }
+
+    const unMetCriteria = checkPasswordStrength(form.password).filter(c => !c.met);
+    if (unMetCriteria.length > 0) {
+      setError('Password does not meet all security criteria');
+      return;
+    }
+
     if (form.role === 'shelter') {
       if (!form.shelterName.trim()) { setError('Shelter name is required'); return; }
       if (!form.shelterAddress.trim()) { setError('Shelter address is required'); return; }
     }
     setSubmitting(true);
+    
+    // Safety un-stuck: if it takes more than 50s, un-disable the button
+    const stuckTimeout = setTimeout(() => {
+      setSubmitting(false);
+      setError('Registration is taking longer than expected. Please check your connection.');
+    }, 50000);
+
     try {
-      const result = await register({
+      console.log('[AuthPage] Submitting registration for:', form.email);
+      
+      const sanitizedForm = {
         ...form,
         name: form.role === 'shelter' ? form.shelterName : form.name,
         location: form.role === 'shelter' ? form.shelterAddress : form.location,
-        shelterLat: form.shelterLat ? parseFloat(form.shelterLat) : undefined,
-        shelterLng: form.shelterLng ? parseFloat(form.shelterLng) : undefined,
-        shelterCapacity: form.shelterCapacity ? parseInt(form.shelterCapacity) : undefined,
-      });
+        specializations: form.specialization ? [form.specialization] : [],
+        experience: parseInt(form.experience) || 0,
+        baseRate: parseFloat(form.baseRate) || 0,
+        shelterLat: form.shelterLat ? (parseFloat(form.shelterLat) || 0) : undefined,
+        shelterLng: form.shelterLng ? (parseFloat(form.shelterLng) || 0) : undefined,
+        shelterCapacity: form.shelterCapacity ? (parseInt(form.shelterCapacity) || 0) : undefined,
+      };
+
+      const result = await register(sanitizedForm);
+      console.log('[AuthPage] Registration API result:', result);
+
       if (!result.success) {
-        setError(result.error || 'Registration failed');
+        setError(result.error || 'Registration failed. Please check your details.');
       } else {
-        setSuccessMsg('Account created! Check your email to confirm, then sign in.');
+        // Save credentials for convenient login later
+        localStorage.setItem('login_email', form.email);
+        localStorage.setItem('login_password', form.password);
+        
+        if (!result.session) {
+          setSuccessMsg('Account created! Please check your email inbox to confirm your account, then you can sign in.');
+        } else {
+          setSuccessMsg('Registration successful! Redirecting you now...');
+        }
       }
+    } catch (err: any) {
+      console.error('[AuthPage] handleSubmit catch error:', err);
+      setError(err.message || 'An unexpected error occurred during registration.');
     } finally {
+      console.log('[AuthPage] Registration cleanup');
+      clearTimeout(stuckTimeout);
       setSubmitting(false);
     }
   };
@@ -420,11 +529,27 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
       {error && (
         <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-xl text-sm">{error}</div>
       )}
-      {successMsg && (
-        <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-xl text-sm">{successMsg}</div>
-      )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Success: show a big confirmation and hide the form */}
+      {successMsg ? (
+        <div className="text-center py-8 space-y-4">
+          <div className="inline-flex p-4 bg-green-100 rounded-full mb-2">
+            <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900">Success!</h3>
+          <p className="text-gray-600">{successMsg}</p>
+          <button
+            onClick={onSwitch}
+            className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors cursor-pointer"
+          >
+            Go to Sign In
+          </button>
+        </div>
+      ) : (
+        <>
+          <form onSubmit={handleSubmit} className="space-y-4">
         {/* Role Selection */}
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-gray-700">I am a</label>
@@ -476,10 +601,32 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
             </div>
 
             <Input label="Capacity" type="number" placeholder="100" value={form.shelterCapacity} onChange={e => update('shelterCapacity', e.target.value)} />
-            <Input label="Contact Email" type="email" placeholder="shelter@example.com" value={form.email} onChange={e => update('email', e.target.value)} required />
-            <Input label="Contact Phone" type="tel" placeholder="0484-2345678" value={form.phone} onChange={e => update('phone', e.target.value)} required />
+            <div className="space-y-1">
+              <Input label="Contact Email" type="email" placeholder="shelter@example.com" value={form.email} onChange={e => update('email', e.target.value)} required />
+              <ValidationNotice error={validateEmail(form.email)} value={form.email} />
+            </div>
+            <div className="space-y-1">
+              <Input 
+                label="Contact Phone" 
+                type="tel" 
+                placeholder="10-digit mobile number" 
+                value={form.phone} 
+                onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} 
+                required 
+              />
+              <ValidationNotice error={validatePhone(form.phone)} value={form.phone} />
+            </div>
             <div className="relative">
-              <Input label="Password" type={showPassword ? 'text' : 'password'} placeholder="Min 6 characters" value={form.password} onChange={e => update('password', e.target.value)} required />
+              <Input
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Min 6 characters"
+                value={form.password}
+                onChange={e => update('password', e.target.value)}
+                onFocus={() => setIsPasswordFocused(true)}
+                onBlur={() => setIsPasswordFocused(false)}
+                required
+              />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -490,29 +637,99 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
                 {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
               </button>
             </div>
+            {(isPasswordFocused || form.password.length > 0) && (
+              <PasswordStrengthIndicator password={form.password} />
+            )}
           </>
         ) : (
           <>
-            <Input label="Full Name" placeholder="John Doe" value={form.name} onChange={e => update('name', e.target.value)} required />
-            <Input label="Email" type="email" placeholder="you@example.com" value={form.email} onChange={e => update('email', e.target.value)} required />
-            <Input label="Phone" type="tel" placeholder="9876543210" value={form.phone} onChange={e => update('phone', e.target.value)} required />
-            <Input label="Location" placeholder="City name" value={form.location} onChange={e => update('location', e.target.value)} required />
+            <div className={`p-4 rounded-xl border-l-4 mb-4 ${form.role === 'nurse' ? 'bg-emerald-50 border-emerald-400' : 'bg-blue-50 border-blue-400'}`}>
+              <p className="text-sm font-medium text-gray-900">
+                {form.role === 'nurse' ? 'Registering as a Professional Nurse' : 'Registering as a Patient'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {form.role === 'nurse'
+                  ? 'Complete your profile information to start finding work.'
+                  : 'Start booking professional home nursing services today.'}
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <Input label="Full Name" placeholder="John Doe" value={form.name} onChange={e => update('name', e.target.value)} required />
+              <div className="space-y-1">
+                <Input label="Email Address" type="email" placeholder="you@example.com" value={form.email} onChange={e => update('email', e.target.value)} required />
+                <ValidationNotice error={validateEmail(form.email)} value={form.email} />
+              </div>
+              <div className="space-y-1">
+                <Input 
+                  label="Mobile Number" 
+                  type="tel" 
+                  placeholder="10-digit mobile number" 
+                  value={form.phone} 
+                  onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} 
+                  required 
+                />
+                <ValidationNotice error={validatePhone(form.phone)} value={form.phone} />
+              </div>
+              <Input label="City/Location" placeholder="Kochi, Kerala" value={form.location} onChange={e => update('location', e.target.value)} required />
+
+              {form.role === 'nurse' && (
+                <>
+                  <Input
+                    label="Primary Specialization"
+                    placeholder="General, ICU, etc."
+                    value={form.specialization}
+                    onChange={e => update('specialization', e.target.value)}
+                    required
+                  />
+                  <Input
+                    label="Years of Experience"
+                    type="number"
+                    placeholder="5"
+                    value={form.experience}
+                    onChange={e => update('experience', e.target.value)}
+                    required
+                  />
+                </>
+              )}
+            </div>
+
             <div className="relative">
-              <Input label="Password" type={showPassword ? 'text' : 'password'} placeholder="Min 6 characters" value={form.password} onChange={e => update('password', e.target.value)} required />
+              <Input
+                label="Password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Min 6 characters"
+                value={form.password}
+                onChange={e => update('password', e.target.value)}
+                onFocus={() => setIsPasswordFocused(true)}
+                onBlur={() => setIsPasswordFocused(false)}
+                required
+              />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-[38px] text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                 tabIndex={-1}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
               </button>
             </div>
+            {(isPasswordFocused || form.password.length > 0) && (
+              <PasswordStrengthIndicator password={form.password} />
+            )}
           </>
         )}
 
-        <Button type="submit" variant={form.role === 'shelter' ? 'secondary' : form.role === 'nurse' ? 'success' : 'primary'} className="w-full" size="lg" disabled={submitting}>{submitting ? 'Creating...' : form.role === 'shelter' ? 'Register Shelter' : 'Create Account'}</Button>
+        <Button 
+          type="submit" 
+          variant={form.role === 'shelter' ? 'secondary' : form.role === 'nurse' ? 'success' : 'primary'} 
+          className="w-full" 
+          size="lg" 
+          loading={submitting}
+          disabled={!form.email.includes('@')}
+        >
+          {submitting ? 'Creating Account...' : form.role === 'shelter' ? 'Register Shelter' : 'Create Account'}
+        </Button>
       </form>
 
       {/* Divider */}
@@ -528,9 +745,13 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
           setError('');
           setSubmitting(true);
           try {
-            const result = await loginWithGoogle();
-            if (!result.success) setError(result.error || 'Google sign-up failed');
-          } finally {
+            const result = await loginWithGoogle(form.role);
+            if (!result.success) {
+              setError(result.error || 'Google login failed');
+              setSubmitting(false);
+            }
+          } catch (err: any) {
+            setError(err.message || 'An error occurred');
             setSubmitting(false);
           }
         }}
@@ -545,11 +766,12 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
         </svg>
         Continue with Google
       </button>
-
       <p className="text-center text-sm text-gray-500 mt-6">
         Already have an account?{' '}
         <button onClick={onSwitch} className="text-blue-600 font-medium hover:underline cursor-pointer">Sign In</button>
       </p>
+    </>
+  )}
     </Card>
   );
 }

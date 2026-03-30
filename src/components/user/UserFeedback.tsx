@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { BookingDB, NurseProfileDB, NotificationDB } from '@/store/database';
+import { BookingDB, NotificationDB } from '@/store/database';
 import { Card, Button, Badge, EmptyState, StarRating, Textarea } from '@/components/ui';
 import { Star, MessageSquare, Clock } from 'lucide-react';
 import type { Booking } from '@/types';
@@ -56,20 +56,7 @@ export function UserFeedback() {
             // 1. Update Booking
             await BookingDB.update(booking.id, { feedback });
 
-            // 2. Update Nurse Profile Stats
-            const nurse = await NurseProfileDB.getByUserId(booking.nurseId);
-            if (nurse) {
-                const newTotal = nurse.totalReviews + 1;
-                // Simple moving average for rating
-                const newRating = ((nurse.rating * nurse.totalReviews) + rating) / newTotal;
-
-                await NurseProfileDB.update(booking.nurseId, {
-                    rating: Number(newRating.toFixed(1)),
-                    totalReviews: newTotal
-                });
-            }
-
-            // 3. Notify Nurse
+            // 2. Notify Nurse (Profile stats are now handled automatically by DB Trigger)
             await NotificationDB.create({
                 userId: booking.nurseId,
                 title: 'New Review Received',

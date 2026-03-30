@@ -164,3 +164,25 @@ export interface AdminLog {
   details: string;
   createdAt: string;
 }
+
+/** Result of a registration attempt */
+export interface RegistrationResult {
+  success: boolean;
+  error?: string;
+  session?: any;
+  user?: any;
+}
+
+/** Authentication context state and methods */
+export interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithPhone: (phone: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: (intendedRole?: string) => Promise<{ success: boolean; error?: string }>;
+  register: (data: any) => Promise<RegistrationResult>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  updateUser: (updates: Partial<User> & any) => Promise<any>;
+}

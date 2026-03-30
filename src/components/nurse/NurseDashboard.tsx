@@ -13,9 +13,10 @@ import { useAuth } from '@/store/AuthContext';
 import { NurseProfileDB, DocumentDB, BookingDB, NotificationDB } from '@/store/database';
 import { analyzeIndianDocument } from '@/ai/indianDocumentAI';
 import { Button, Input, Textarea, Card, Badge, Modal, EmptyState, Spinner, ProgressBar } from '@/components/ui';
-import { User, Upload, FileCheck, Calendar, CheckCircle, XCircle, Clock, Shield, AlertTriangle, FileText, Activity, IndianRupee, Star, Bell } from 'lucide-react';
+import { User, Upload, FileCheck, Calendar, CheckCircle, XCircle, Clock, Shield, AlertTriangle, FileText, Activity, IndianRupee, Star, Bell, Heart } from 'lucide-react';
 import type { NurseProfile, NurseDocument, Booking, DocumentAnalysis } from '@/types';
 import { cn } from '@/utils/cn';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
 
 import { NurseHome } from './NurseHome';
 import { NurseSchedule } from './NurseSchedule';
@@ -23,11 +24,20 @@ import { NurseEarnings } from './NurseEarnings';
 import { NurseRatings } from './NurseRatings';
 import { NurseNotifications } from './NurseNotifications';
 import { NurseAccount } from './NurseAccount';
+import { HomelessReport } from '../shared/ReportManager';
 
-type Tab = 'overview' | 'profile' | 'documents' | 'bookings' | 'schedule' | 'earnings' | 'ratings' | 'notifications' | 'account';
+type Tab = 'overview' | 'profile' | 'documents' | 'bookings' | 'schedule' | 'earnings' | 'ratings' | 'report' | 'notifications' | 'account';
 
-export function NurseDashboard() {
+export function NurseDashboard({ onGoToLanding }: { onGoToLanding: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [loadedTabs, setLoadedTabs] = useState<Tab[]>(['overview']);
+
+  const handleTabChange = (id: string) => {
+    setActiveTab(id as Tab);
+    if (!loadedTabs.includes(id as Tab)) {
+      setLoadedTabs(prev => [...prev, id as Tab]);
+    }
+  };
 
   const tabs = [
     { id: 'overview' as Tab, label: 'Overview', icon: <Activity className="w-4 h-4" /> },
@@ -37,32 +47,51 @@ export function NurseDashboard() {
     { id: 'schedule' as Tab, label: 'My Schedule', icon: <Clock className="w-4 h-4" /> },
     { id: 'earnings' as Tab, label: 'Earnings', icon: <IndianRupee className="w-4 h-4" /> },
     { id: 'ratings' as Tab, label: 'Ratings', icon: <Star className="w-4 h-4" /> },
+    { id: 'report' as Tab, label: 'Help Report', icon: <Heart className="w-4 h-4" /> },
     { id: 'notifications' as Tab, label: 'Notifications', icon: <Bell className="w-4 h-4" /> },
     { id: 'account' as Tab, label: 'Account Settings', icon: <Shield className="w-4 h-4" /> },
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex gap-1 bg-gray-100/80 p-2 rounded-2xl overflow-x-auto hide-scrollbar border border-gray-200/50 shadow-inner">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={cn('flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap cursor-pointer',
-              activeTab === tab.id ? 'bg-white text-emerald-700 shadow-md ring-1 ring-black/5 scale-[1.05]' : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900')}>
-            {tab.icon} {tab.label}
-          </button>
-        ))}
+    <DashboardLayout
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      onGoToLanding={onGoToLanding}
+    >
+      <div className="w-full">
+        <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
+          {loadedTabs.includes('overview') && <NurseHome onNavigate={handleTabChange} />}
+        </div>
+        <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
+          {loadedTabs.includes('profile') && <ProfileManager />}
+        </div>
+        <div style={{ display: activeTab === 'documents' ? 'block' : 'none' }}>
+          {loadedTabs.includes('documents') && <DocumentManager />}
+        </div>
+        <div style={{ display: activeTab === 'bookings' ? 'block' : 'none' }}>
+          {loadedTabs.includes('bookings') && <BookingManager />}
+        </div>
+        <div style={{ display: activeTab === 'schedule' ? 'block' : 'none' }}>
+          {loadedTabs.includes('schedule') && <NurseSchedule />}
+        </div>
+        <div style={{ display: activeTab === 'earnings' ? 'block' : 'none' }}>
+          {loadedTabs.includes('earnings') && <NurseEarnings />}
+        </div>
+        <div style={{ display: activeTab === 'ratings' ? 'block' : 'none' }}>
+          {loadedTabs.includes('ratings') && <NurseRatings />}
+        </div>
+        <div style={{ display: activeTab === 'report' ? 'block' : 'none' }}>
+          {loadedTabs.includes('report') && <HomelessReport />}
+        </div>
+        <div style={{ display: activeTab === 'notifications' ? 'block' : 'none' }}>
+          {loadedTabs.includes('notifications') && <NurseNotifications />}
+        </div>
+        <div style={{ display: activeTab === 'account' ? 'block' : 'none' }}>
+          {loadedTabs.includes('account') && <NurseAccount />}
+        </div>
       </div>
-
-      {activeTab === 'overview' && <NurseHome onNavigate={(t) => setActiveTab(t as Tab)} />}
-      {activeTab === 'profile' && <ProfileManager />}
-      {activeTab === 'documents' && <DocumentManager />}
-      {activeTab === 'bookings' && <BookingManager />}
-      {activeTab === 'schedule' && <NurseSchedule />}
-      {activeTab === 'earnings' && <NurseEarnings />}
-      {activeTab === 'ratings' && <NurseRatings />}
-      {activeTab === 'notifications' && <NurseNotifications />}
-      {activeTab === 'account' && <NurseAccount />}
-    </div>
+    </DashboardLayout>
   );
 }
 
@@ -71,7 +100,7 @@ export function NurseDashboard() {
 /* ─────────────────────────────────────────── */
 
 function ProfileManager() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [profile, setProfile] = useState<NurseProfile | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
@@ -87,31 +116,57 @@ function ProfileManager() {
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load existing profile
-  useEffect(() => {
-    NurseProfileDB.getByUserId(user!.id).then(p => {
-      setProfile(p);
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      let p = await NurseProfileDB.getByUserId(user!.id);
+      
+      // Auto-Repair/Creation if missing
+      if (!p) {
+        console.log('[ProfileManager] Profile missing, creating default profile.');
+        try {
+            const newProfile = await NurseProfileDB.create({
+                userId: user!.id, specializations: [], experience: 0,
+                baseRate: 0, rateType: 'hourly', bio: '', location: user!.location || '',
+                serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+            });
+            p = newProfile as any;
+        } catch (e) {
+            console.error('[ProfileManager] Auto-repair failed:', e);
+        }
+      }
+
+      setProfile(p || undefined);
       if (p) {
         setForm({
           specializations: p.specializations.join(', '),
           experience: p.experience?.toString() || '',
           baseRate: p.baseRate?.toString() || '',
-          rateType: p.rateType || 'hourly',
+          rateType: (p.rateType as any) || 'hourly',
           bio: p.bio || '',
           location: p.location || user!.location || '',
           serviceAreas: p.serviceAreas.join(', '),
           availability: p.availability ?? true,
         });
       }
+    } catch (err: any) {
+      console.error('Failed to load profile:', err);
+      setError('Could not connect to database to load profile.');
+    } finally {
       setLoading(false);
-    });
+    }
   }, [user]);
+
+  useEffect(() => { loadProfile(); }, [loadProfile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const profileData: Omit<NurseProfile, 'verificationStatus' | 'rating' | 'totalReviews' | 'documents'> & Partial<Pick<NurseProfile, 'verificationStatus' | 'rating' | 'totalReviews' | 'documents'>> = {
+    setError(null);
+    const profileData: Omit<NurseProfile, 'verificationStatus' | 'rating' | 'totalReviews'> & Partial<Pick<NurseProfile, 'verificationStatus' | 'rating' | 'totalReviews'>> = {
       userId: user!.id,
       specializations: form.specializations.split(',').map(s => s.trim()).filter(Boolean),
       experience: parseInt(form.experience) || 0,
@@ -121,25 +176,38 @@ function ProfileManager() {
       location: form.location,
       serviceAreas: form.serviceAreas.split(',').map(s => s.trim()).filter(Boolean),
       availability: form.availability,
+      documents: [],
     };
 
-    if (profile) {
-      const updated = await NurseProfileDB.update(user!.id, profileData);
-      if (updated) setProfile(updated);
-    } else {
-      const created = await NurseProfileDB.create({
-        ...profileData,
-        verificationStatus: 'pending',
-        rating: 0,
-        totalReviews: 0,
-        documents: [],
-      });
-      setProfile(created);
+    try {
+      if (profile) {
+        const updated = await NurseProfileDB.update(user!.id, profileData);
+        if (updated) {
+          setProfile(updated);
+          // Also update the global user object if location changed
+          if (form.location !== user?.location) {
+            await updateUser({ location: form.location });
+          }
+        }
+      } else {
+        const created = await NurseProfileDB.create({
+          ...profileData,
+          verificationStatus: 'pending',
+        });
+        if (created) {
+          setProfile(created);
+          // Also update the global user object
+          await updateUser({ location: form.location });
+        }
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: any) {
+      console.error('Failed to save profile:', err);
+      setError(err.message || 'Failed to save changes. Please try again.');
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
   };
 
   if (loading) return <Card className="p-8 text-center"><Spinner size="sm" /><p className="text-sm text-gray-500 mt-2">Loading profile...</p></Card>;
@@ -173,7 +241,19 @@ function ProfileManager() {
 
       {/* Profile Form */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Professional Profile</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Professional Profile</h3>
+          <Button variant="ghost" size="sm" onClick={loadProfile} disabled={loading || saving}>
+            <Activity className="w-3.5 h-3.5 mr-1" /> Refresh
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-xl text-sm font-medium border border-red-100 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> {error}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <Textarea label="Bio / About Me" placeholder="Describe your experience and approach to care..."
             value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} required />
@@ -213,8 +293,8 @@ function ProfileManager() {
             <button type="button" onClick={() => setForm(f => ({ ...f, availability: !f.availability }))}
               className={cn('relative w-11 h-6 rounded-full transition-colors cursor-pointer',
                 form.availability ? 'bg-emerald-500' : 'bg-gray-300')}>
-              <span className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
-                form.availability ? 'translate-x-5.5' : 'translate-x-0.5')} />
+              <span className={cn('absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                form.availability ? 'translate-x-5' : 'translate-x-0')} />
             </button>
           </div>
 
@@ -515,7 +595,11 @@ function BookingManager() {
   };
 
   const updateStatus = async (id: string, status: 'accepted' | 'rejected' | 'completed') => {
-    await BookingDB.update(id, { status });
+    const updateData: any = { status };
+    if (status === 'completed') {
+      updateData.paymentStatus = 'completed';
+    }
+    await BookingDB.update(id, updateData);
     const booking = await BookingDB.getById(id);
     if (booking) {
       await NotificationDB.create({
@@ -557,7 +641,7 @@ function BookingManager() {
               </div>
               <div className="text-sm text-gray-600 mb-3">
                 <p>📅 {booking.startDate} → {booking.endDate}</p>
-                <p>💰 ₹{booking.totalAmount.toLocaleString()} (COD)</p>
+                <p>💰 ₹{booking.totalAmount.toLocaleString()} (Onsite)</p>
                 {booking.notes && <p className="mt-1">📝 {booking.notes}</p>}
 
                 {/* Contact Reveal Logic: Hidden until accepted */}
@@ -635,3 +719,12 @@ function BookingManager() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

@@ -6,6 +6,7 @@
  */
 
 import { type ReactNode, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ButtonHTMLAttributes, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/utils/cn';
 
 /* ─── Button ─── */
@@ -188,22 +189,24 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
     xl: 'max-w-4xl',
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  const modalContent = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className={cn('relative bg-white rounded-2xl shadow-xl w-full max-h-[90vh] overflow-y-auto', sizes[size])}>
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+      <div className={cn('relative bg-white rounded-2xl shadow-xl w-full max-h-[90vh] flex flex-col', sizes[size])}>
+        <div className="shrink-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
           <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 cursor-pointer">
+          <button onClick={onClose} type="button" className="p-1 rounded-lg hover:bg-gray-100 cursor-pointer">
             <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 }
 
 /* ─── Stats Card ─── */
@@ -338,3 +341,6 @@ export function StarRating({ rating, onRate, onChange, readonly = false, size = 
     </div>
   );
 }
+
+/* ─── Re-export Image Viewer Modal ─── */
+export { ImageViewerModal } from './ImageViewerModal';

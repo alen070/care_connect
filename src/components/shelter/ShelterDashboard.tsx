@@ -15,17 +15,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { ShelterReportDB, ShelterDB, NotificationDB } from '@/store/database';
 import { supabase } from '@/lib/supabase';
-import { Button, Card, Badge, EmptyState, Spinner, Modal } from '@/components/ui';
+import { Button, Card, Badge, EmptyState, Spinner, Modal, ImageViewerModal } from '@/components/ui';
 import {
     MapPin, Clock, CheckCircle, AlertTriangle, Eye, Image,
     Building, FileText, Calendar
 } from 'lucide-react';
 import type { ShelterReport, Shelter } from '@/types';
 import { cn } from '@/utils/cn';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { ShelterAccount } from './ShelterAccount';
+import { User } from 'lucide-react';
 
-type Tab = 'pending' | 'accepted' | 'all';
+type Tab = 'pending' | 'accepted' | 'all' | 'account';
 
-export function ShelterDashboard() {
+export function ShelterDashboard({ onGoToLanding }: { onGoToLanding: () => void }) {
     const { user } = useAuth();
     const [shelter, setShelter] = useState<Shelter | undefined>();
     const [reports, setReports] = useState<ShelterReport[]>([]);
@@ -36,7 +39,33 @@ export function ShelterDashboard() {
     // Load shelter + assigned reports
     const loadData = useCallback(async () => {
         if (!user) return;
-        const s = await ShelterDB.getByUserId(user.id);
+        let s = await ShelterDB.getByUserId(user.id);
+        
+        // Auto-Repair/Creation if missing
+        if (!s) {
+            console.log('[ShelterDashboard] Facility missing, attempting auto-link/creation');
+            // Try email link first
+            s = await ShelterDB.getByEmail(user.email);
+            if (s && !s.shelterUserId) {
+                await ShelterDB.update(s.id, { shelterUserId: user.id });
+                s = await ShelterDB.getByUserId(user.id);
+            }
+            
+            if (!s) {
+                console.log('[ShelterDashboard] Creating default facility record');
+                s = await ShelterDB.create({
+                    name: (user.name || 'New') + ' Shelter',
+                    address: user.location || 'Pending Address',
+                    latitude: 0,
+                    longitude: 0,
+                    phone: user.phone || 'Pending Phone',
+                    email: user.email,
+                    capacity: 50,
+                    shelterUserId: user.id
+                });
+            }
+        }
+
         setShelter(s);
         if (s) {
             const r = await ShelterReportDB.getByShelterId(s.id);
@@ -83,9 +112,9 @@ export function ShelterDashboard() {
         if (report) {
             await NotificationDB.create({
                 userId: report.reportedBy,
+                title: 'Report Accepted',
                 message: `Your humanitarian report at "${report.locationDescription}" has been accepted by ${shelter?.name || 'a shelter'}.`,
                 type: 'success',
-                read: false,
             });
         }
 
@@ -104,16 +133,31 @@ export function ShelterDashboard() {
 
     if (!shelter) {
         return (
-            <Card className="p-12 text-center space-y-4">
-                <Building className="w-12 h-12 text-gray-300 mx-auto" />
-                <h3 className="text-lg font-semibold text-gray-900">Shelter Not Linked</h3>
-                <p className="text-sm text-gray-500 max-w-md mx-auto">
-                    Your account is not linked to a shelter yet. Please contact the admin to link
-                    your account to a shelter location.
+            <Card className="p-12 text-center space-y-4 border-red-100">
+                <div className="p-4 bg-red-50 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 border border-red-100">
+                    <AlertTriangle className="w-10 h-10 text-red-500" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">Connection Failed</h3>
+                <p className="text-sm text-gray-500 max-w-sm mx-auto">
+                    We could not securely link your account to your facility record. Please ensure you have a stable connection and try again.
                 </p>
+                <div className="flex flex-col gap-3 pt-4">
+                    <Button 
+                        variant="primary" 
+                        onClick={() => {
+                            setLoading(true);
+                            loadData();
+                        }}
+                    >
+                        Retry Connection
+                    </Button>
+                </div>
             </Card>
         );
     }
+
+    // New check for missing coordinates
+    const hasMissingCoords = shelter.latitude === 0 && shelter.longitude === 0;
 
     const pendingReports = reports.filter(r => r.status === 'reported' || r.status === 'notified');
     const acceptedReports = reports.filter(r => r.status === 'assigned');
@@ -137,6 +181,11 @@ export function ShelterDashboard() {
             icon: <FileText className="w-4 h-4" />,
             count: reports.length,
         },
+        {
+            id: 'account' as Tab,
+            label: 'My Account',
+            icon: <User className="w-4 h-4" />,
+        },
     ];
 
     const getCurrentReports = () => {
@@ -144,91 +193,90 @@ export function ShelterDashboard() {
             case 'pending': return pendingReports;
             case 'accepted': return acceptedReports;
             case 'all': return reports;
+            default: return [];
         }
     };
 
     return (
-        <div className="space-y-6">
-            {/* Shelter Info Card */}
-            <Card className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
-                <div className="flex items-center gap-4">
-                    <div className="p-3 bg-amber-100 rounded-2xl">
-                        <Building className="w-6 h-6 text-amber-600" />
+        <DashboardLayout
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={(id) => setActiveTab(id as Tab)}
+            onGoToLanding={onGoToLanding}
+        >
+            <div className="space-y-6">
+                {hasMissingCoords && activeTab !== 'account' && (
+                    <div className="bg-amber-100 border border-amber-200 p-4 rounded-xl flex items-center gap-4 animate-bounce">
+                        <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0" />
+                        <div className="flex-1">
+                            <p className="text-sm font-bold text-amber-900">Incomplete Shelter Location</p>
+                            <p className="text-xs text-amber-700">Your shelter is currently hidden from the map because coordinates are missing.</p>
+                        </div>
+                        <Button size="sm" variant="secondary" onClick={() => setActiveTab('account')}>
+                            Fix Now
+                        </Button>
                     </div>
-                    <div className="flex-1">
-                        <h3 className="text-lg font-bold text-gray-900">{shelter.name}</h3>
-                        <p className="text-sm text-gray-600">{shelter.address}</p>
-                        <p className="text-xs text-gray-500 mt-1">📞 {shelter.phone} · ✉️ {shelter.email} · Capacity: {shelter.capacity}</p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-3xl font-bold text-amber-600">{pendingReports.length}</p>
-                        <p className="text-xs text-gray-500">Pending</p>
-                    </div>
-                </div>
-            </Card>
+                )}
 
-            {/* Tabs */}
-            <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
-                {tabs.map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={cn(
-                            'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer relative',
-                            activeTab === tab.id
-                                ? 'bg-white text-amber-600 shadow-sm'
-                                : 'text-gray-600 hover:text-gray-900'
-                        )}
-                    >
-                        {tab.icon} {tab.label}
-                        {tab.count > 0 && (
-                            <span className={cn(
-                                'inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold',
-                                tab.id === 'pending' && tab.count > 0
-                                    ? 'bg-red-500 text-white animate-pulse'
-                                    : 'bg-gray-200 text-gray-700'
-                            )}>
-                                {tab.count}
-                            </span>
-                        )}
-                    </button>
-                ))}
-            </div>
+                {activeTab === 'account' ? (
+                    <ShelterAccount shelter={shelter} onUpdate={setShelter} />
+                ) : (
+                    <>
+                        {/* Shelter Info Card */}
+                        <Card className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-amber-100 rounded-2xl">
+                                    <Building className="w-6 h-6 text-amber-600" />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="text-lg font-bold text-gray-900">{shelter.name}</h3>
+                                    <p className="text-sm text-gray-600">{shelter.address}</p>
+                                    <p className="text-xs text-gray-500 mt-1">📞 {shelter.phone} · ✉️ {shelter.email} · Capacity: {shelter.capacity}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-3xl font-bold text-amber-600">{pendingReports.length}</p>
+                                    <p className="text-xs text-gray-500">Pending</p>
+                                </div>
+                            </div>
+                        </Card>
 
-            {/* Report Cards */}
-            {getCurrentReports().length === 0 ? (
-                <EmptyState
-                    icon={<MapPin className="w-8 h-8 text-gray-400" />}
-                    title={activeTab === 'pending' ? 'No pending reports' : activeTab === 'accepted' ? 'No accepted reports' : 'No reports yet'}
-                    description={activeTab === 'pending'
-                        ? 'Great news! There are no pending humanitarian reports assigned to your shelter.'
-                        : 'Reports will appear here once they are assigned to your shelter.'}
-                />
-            ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                    {getCurrentReports().map(report => (
-                        <ReportCard
-                            key={report.id}
-                            report={report}
+                        {/* Report Cards */}
+                        {getCurrentReports().length === 0 ? (
+                            <EmptyState
+                                icon={<MapPin className="w-8 h-8 text-gray-400" />}
+                                title={activeTab === 'pending' ? 'No pending reports' : activeTab === 'accepted' ? 'No accepted reports' : 'No reports yet'}
+                                description={activeTab === 'pending'
+                                    ? 'Great news! There are no pending humanitarian reports assigned to your shelter.'
+                                    : 'Reports will appear here once they are assigned to your shelter.'}
+                            />
+                        ) : (
+                            <div className="grid gap-4 md:grid-cols-2">
+                                {getCurrentReports().map(report => (
+                                    <ReportCard
+                                        key={report.id}
+                                        report={report}
+                                        shelterName={shelter.name}
+                                        onAccept={() => handleAccept(report.id)}
+                                        onViewDetail={() => setSelectedReport(report)}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* Detail Modal */}
+                {selectedReport && (
+                    <Modal isOpen onClose={() => setSelectedReport(null)} title="Report Details" size="xl">
+                        <ReportDetail
+                            report={selectedReport}
                             shelterName={shelter.name}
-                            onAccept={() => handleAccept(report.id)}
-                            onViewDetail={() => setSelectedReport(report)}
+                            onAccept={() => handleAccept(selectedReport.id)}
                         />
-                    ))}
-                </div>
-            )}
-
-            {/* Detail Modal */}
-            {selectedReport && (
-                <Modal isOpen onClose={() => setSelectedReport(null)} title="Report Details" size="xl">
-                    <ReportDetail
-                        report={selectedReport}
-                        shelterName={shelter.name}
-                        onAccept={() => handleAccept(selectedReport.id)}
-                    />
-                </Modal>
-            )}
-        </div>
+                    </Modal>
+                )}
+            </div>
+        </DashboardLayout>
     );
 }
 
@@ -265,7 +313,9 @@ function ReportCard({
                     <img
                         src={report.photo}
                         alt="Report"
-                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={onViewDetail}
                     />
                     <div className="absolute top-2 right-2">
                         <Badge variant={isPending ? 'danger' : isAssigned ? 'success' : 'neutral'}>
@@ -353,6 +403,7 @@ function ReportDetail({
 }) {
     const isPending = report.status === 'reported' || report.status === 'notified';
     const [confirming, setConfirming] = useState(false);
+    const [imageViewerOpen, setImageViewerOpen] = useState(false);
 
     return (
         <div className="space-y-6">
@@ -385,9 +436,17 @@ function ReportDetail({
                         <img
                             src={report.photo}
                             alt="Report"
-                            className="w-full max-h-64 object-contain"
+                            loading="lazy"
+                            className="w-full max-h-64 object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => setImageViewerOpen(true)}
                         />
                     </div>
+                    <ImageViewerModal
+                        isOpen={imageViewerOpen}
+                        onClose={() => setImageViewerOpen(false)}
+                        src={report.photo}
+                        alt="Humanitarian Report Photo"
+                    />
                 </div>
             )}
 

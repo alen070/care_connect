@@ -5,13 +5,14 @@
  * ============================================
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button, Card, Badge } from '@/components/ui';
 import {
   Search, MapPin, Phone, Shield, Star, Clock, Users, Heart,
   Stethoscope, CheckCircle, ArrowRight, Menu, X,
   Home, Baby, HeartPulse, Activity, BadgeCheck, Camera,
-  AlertTriangle, HandHeart, Building2, Send
+  AlertTriangle, HandHeart, Building2, Send,
+  Facebook, Twitter, Instagram, Linkedin
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import logo from '@/assets/logo.png';
@@ -28,6 +29,28 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
   const [location, setLocation] = useState('');
   const [showServiceDropdown, setShowServiceDropdown] = useState(false);
   const [showCityDropdown, setShowCityDropdown] = useState(false);
+
+  // Intersection Observer for scroll animations
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-fade-in-up');
+          entry.target.classList.remove('opacity-0');
+          // Optional: stop observing once animated
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      threshold: 0.1, // Trigger when 10% of the element is visible
+      rootMargin: '0px 0px -50px 0px' // Slightly trigger before it comes fully into view
+    });
+
+    const elements = document.querySelectorAll('.reveal-on-scroll');
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, []);
 
   const allServices = ['Elderly Care', 'Post-Surgery Care', 'Newborn Care', 'Palliative Care'];
 
@@ -67,7 +90,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* NAVIGATION BAR */}
       {/* ══════════════════════════════════════════════ */}
-      <nav className="sticky top-0 z-50 bg-white border-b border-gray-100 shadow-sm">
+      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-gray-100/50 shadow-sm transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity text-left">
@@ -91,12 +114,16 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
             </div>
 
             <div className="hidden sm:flex items-center gap-3 ml-auto lg:ml-0">
-              <Button variant="ghost" size="sm" onClick={handleLogin}>Sign In</Button>
-              <Button size="sm" onClick={onGetStarted}>Get Started</Button>
+              <Button variant="ghost" size="sm" onClick={handleLogin} className="hover:bg-blue-50 hover:text-blue-700 font-medium transition-colors">Sign In</Button>
+              <Button size="sm" onClick={onGetStarted} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 px-6 font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]">
+                Get Started
+              </Button>
             </div>
 
             <div className="flex sm:hidden items-center gap-2">
-              <Button size="sm" onClick={onGetStarted} className="text-xs px-3 py-1.5">Get Started</Button>
+              <Button size="sm" onClick={onGetStarted} className="text-xs px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 font-semibold transition-all">
+                Get Started
+              </Button>
               <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 rounded-lg hover:bg-gray-100">
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
@@ -109,7 +136,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
         </div>
 
         {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-gray-100 bg-white">
+          <div className="lg:hidden border-t border-gray-100/50 bg-white/95 backdrop-blur-md">
             <div className="px-4 py-4 space-y-3">
               <a href="#services" className="block py-2 text-gray-600 hover:text-blue-600">Services</a>
               <a href="#how-it-works" className="block py-2 text-gray-600 hover:text-blue-600">How It Works</a>
@@ -118,9 +145,11 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
               <button onClick={scrollToReport} className="block py-2 text-orange-600 hover:text-orange-700 font-medium flex items-center gap-2">
                 <HandHeart className="w-4 h-4" /> Report & Help Homeless
               </button>
-              <div className="pt-3 border-t border-gray-100 space-y-2">
+              <div className="pt-3 border-t border-gray-100/50 space-y-2">
                 <Button variant="outline" className="w-full" onClick={handleLogin}>Sign In</Button>
-                <Button className="w-full" onClick={onGetStarted}>Get Started</Button>
+                <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 font-semibold transition-all" onClick={onGetStarted}>
+                  Get Started
+                </Button>
               </div>
             </div>
           </div>
@@ -130,195 +159,227 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* HERO SECTION */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="relative bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-16 lg:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div className="space-y-8">
+      {/* HERO SECTION */}
+      {/* ══════════════════════════════════════════════ */}
+      <section className="relative overflow-hidden pt-16 pb-24 lg:pt-24 lg:pb-32">
+        {/* Soft Depth Background */}
+        <div className="absolute inset-0 bg-slate-50"></div>
+        <div className="absolute top-0 right-0 w-[800px] h-[600px] bg-blue-100/40 rounded-full blur-3xl -z-10 translate-x-1/3 -translate-y-1/4"></div>
+        <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-indigo-50/50 rounded-full blur-3xl -z-10 -translate-x-1/3 translate-y-1/4"></div>
+
+        {/* ── Landscape Hero Image Blended Background ── */}
+        <div className="absolute top-0 right-0 bottom-0 w-full lg:w-[65%] hidden lg:block z-0 pointer-events-none" style={{ WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 25%)', maskImage: 'linear-gradient(to right, transparent 0%, black 25%)' }}>
+          <img
+            src="/src/assets/hero_homecare_landscape.png"
+            alt="Compassionate homecare"
+            className="w-full h-full object-cover object-[75%_center]"
+          />
+          <div className="absolute inset-0 bg-blue-900/5 mix-blend-multiply"></div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-14 items-center">
+            {/* Left Content */}
+            <div className="space-y-8 animate-fade-in-up">
               <div>
-                <Badge variant="info" className="mb-4">
-                  <Shield className="w-3 h-3 mr-1" /> AI-Powered Verification
+                <Badge variant="info" className="mb-6 bg-white shadow-sm border border-blue-100/50 px-3 py-1.5 rounded-full inline-flex items-center">
+                  <Shield className="w-3.5 h-3.5 mr-1.5 text-blue-600" />
+                  <span className="text-xs font-semibold tracking-wide uppercase text-gray-700">AI-Powered Verification</span>
                 </Badge>
-                <h1 className="text-4xl lg:text-5xl xl:text-6xl font-bold text-gray-900 leading-tight">
+                <h1 className="text-4xl lg:text-5xl xl:text-6xl font-extrabold text-gray-900 leading-[1.1] tracking-tight">
                   Find Trusted{' '}
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Home Nurses</span>{' '}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 leading-normal">
+                    Care Assistant
+                  </span>{' '}
+                  <br className="hidden lg:block" />
                   Near You
                 </h1>
-                <p className="mt-4 text-lg text-gray-600 max-w-xl">
-                  Kerala&apos;s most trusted platform to connect with verified, experienced home nurses.
-                  Serving all 14 districts with AI-verified and background-checked professionals.
+                <p className="mt-5 text-lg text-gray-600 max-w-xl font-medium leading-relaxed">
+                  Kerala&apos;s most trusted platform to connect with verified, experienced home care assistants. Serving all 14 districts with background-checked professionals.
                 </p>
               </div>
 
-              <Card className="p-4 shadow-lg border-0">
-                <div className="grid sm:grid-cols-12 gap-3">
-                  {/* SERVICE SEARCH WITH DROPDOWN */}
-                  <div className="sm:col-span-5 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
+              {/* ── Glassmorphic Premium Search Module ── */}
+              <div className="bg-white/60 backdrop-blur-xl rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] border border-white p-3 max-w-xl relative overflow-visible z-20 transition-all duration-300 hover:shadow-[0_20px_40px_rgb(0,0,0,0.12)] hover:-translate-y-1">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-white/10 rounded-3xl -z-10 pointer-events-none"></div>
+
+                {/* Input Row */}
+                <div className="flex flex-col sm:flex-row items-center bg-white/70 rounded-2xl p-1 gap-1">
+                  {/* Service Input */}
+                  <div className="flex-1 w-full relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center transition-colors">
+                      <Stethoscope className="w-4 h-4" />
+                    </div>
                     <input
                       type="text"
                       placeholder="What service do you need?"
                       value={searchQuery}
                       onChange={(e) => { setSearchQuery(e.target.value); setShowServiceDropdown(true); setShowCityDropdown(false); }}
                       onFocus={() => { setShowServiceDropdown(true); setShowCityDropdown(false); }}
-                      className="w-full pl-10 h-12 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full pl-15 pr-4 h-14 bg-transparent text-[15px] font-medium text-gray-800 placeholder:text-gray-400 focus:outline-none rounded-xl"
                     />
                     {showServiceDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
-                        <div className="p-2 border-b border-gray-100 bg-gray-50">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2">Our Services</p>
+                      <div className="absolute top-full left-0 right-0 mt-3 bg-white/95 backdrop-blur-2xl border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden">
+                        <div className="p-3 border-b border-gray-50 bg-gray-50/50">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Our Services</p>
                         </div>
-                        <div className="max-h-60 overflow-y-auto">
+                        <div className="max-h-60 overflow-y-auto py-2">
                           {filteredServices.length > 0 ? filteredServices.map((service) => (
                             <button
                               key={service}
                               onClick={() => { setSearchQuery(service); setShowServiceDropdown(false); }}
-                              className="w-full text-left px-4 py-3 hover:bg-blue-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
+                              className="w-full text-left px-5 py-3 hover:bg-slate-50 flex items-center gap-4 transition-colors"
                             >
-                              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
+                              <div className="w-9 h-9 bg-blue-50/80 rounded-xl flex items-center justify-center shrink-0">
                                 {service === 'Elderly Care' && <Home className="w-4 h-4 text-blue-600" />}
                                 {service === 'Post-Surgery Care' && <Activity className="w-4 h-4 text-blue-600" />}
                                 {service === 'Newborn Care' && <Baby className="w-4 h-4 text-blue-600" />}
                                 {service === 'Palliative Care' && <HeartPulse className="w-4 h-4 text-blue-600" />}
                               </div>
                               <div>
-                                <p className="text-sm font-medium text-gray-900">{service}</p>
-                                <p className="text-xs text-gray-500">
-                                  {service === 'Elderly Care' && 'Medication, mobility & daily living'}
-                                  {service === 'Post-Surgery Care' && 'Wound care & rehabilitation'}
-                                  {service === 'Newborn Care' && 'Infant care & health monitoring'}
-                                  {service === 'Palliative Care' && 'Comfort & end-of-life care'}
+                                <p className="text-[14px] font-semibold text-gray-900">{service}</p>
+                                <p className="text-[12px] text-gray-400 mt-0.5">
+                                  {service === 'Elderly Care' && 'Medication & daily living'}
+                                  {service === 'Post-Surgery Care' && 'Wound care & rehab'}
+                                  {service === 'Newborn Care' && 'Infant health monitoring'}
+                                  {service === 'Palliative Care' && 'Comfort & support'}
                                 </p>
                               </div>
                             </button>
                           )) : (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">No services found</div>
+                            <div className="px-5 py-4 text-sm text-gray-400 text-center font-medium">No services found</div>
                           )}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* CITY SEARCH WITH DROPDOWN */}
-                  <div className="sm:col-span-4 relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
+                  {/* Vertical Divider */}
+                  <div className="w-px h-8 bg-gray-200 shrink-0 hidden sm:block mx-1"></div>
+
+                  {/* Location Input */}
+                  <div className="flex-1 w-full relative">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center transition-colors">
+                      <MapPin className="w-4 h-4" />
+                    </div>
                     <input
                       type="text"
-                      placeholder="Enter your city"
+                      placeholder="Location"
                       value={location}
                       onChange={(e) => { setLocation(e.target.value); setShowCityDropdown(true); setShowServiceDropdown(false); }}
                       onFocus={() => { setShowCityDropdown(true); setShowServiceDropdown(false); }}
-                      className="w-full pl-10 h-12 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full pl-15 pr-4 h-14 bg-transparent text-[15px] font-medium text-gray-800 placeholder:text-gray-400 focus:outline-none rounded-xl"
                     />
                     {showCityDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
-                        <div className="p-2 border-b border-gray-100 bg-gray-50">
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2">Kerala Cities & Places</p>
+                      <div className="absolute top-full left-0 right-0 mt-3 bg-white/95 backdrop-blur-2xl border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden">
+                        <div className="p-3 border-b border-gray-50 bg-gray-50/50">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">Kerala Locations</p>
                         </div>
-                        <div className="max-h-60 overflow-y-auto">
+                        <div className="max-h-60 overflow-y-auto py-2">
                           {filteredCities.length > 0 ? filteredCities.map((city) => (
                             <button
                               key={city}
                               onClick={() => { setLocation(city); setShowCityDropdown(false); }}
-                              className="w-full text-left px-4 py-2.5 hover:bg-blue-50 flex items-center gap-3 transition-colors border-b border-gray-50 last:border-0"
+                              className="w-full text-left px-5 py-2.5 hover:bg-slate-50 flex items-center gap-3 transition-colors"
                             >
-                              <MapPin className="w-4 h-4 text-green-500 shrink-0" />
-                              <span className="text-sm text-gray-800">{city}</span>
+                              <MapPin className="w-4 h-4 text-emerald-500 shrink-0" />
+                              <span className="text-[14px] font-medium text-gray-700">{city}</span>
                             </button>
                           )) : (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">No places found</div>
+                            <div className="px-5 py-4 text-sm text-gray-400 text-center font-medium">No locations found</div>
                           )}
                         </div>
                       </div>
                     )}
                   </div>
-
-                  <div className="sm:col-span-3">
-                    <Button className="w-full h-12 text-base" onClick={() => { setShowServiceDropdown(false); setShowCityDropdown(false); onGetStarted(); }}>
-                      <Search className="w-4 h-4 mr-2" /> Search
-                    </Button>
-                  </div>
                 </div>
+
+                {/* Search Button */}
+                <button
+                  className="w-full h-14 mt-3 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold text-[15px] flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 transition-all active:scale-[0.98]"
+                  onClick={() => { setShowServiceDropdown(false); setShowCityDropdown(false); onGetStarted(); }}
+                >
+                  <Search className="w-5 h-5" /> Search Care Assistants
+                </button>
 
                 {/* Click outside to close dropdowns */}
                 {(showServiceDropdown || showCityDropdown) && (
                   <div className="fixed inset-0 z-40" onClick={() => { setShowServiceDropdown(false); setShowCityDropdown(false); }}></div>
                 )}
-              </Card>
+              </div>
 
-              <div className="flex flex-wrap gap-6">
-                <div className="flex items-center gap-2">
-                  <div className="flex -space-x-2">
-                    {[1, 2, 3, 4].map(i => (
-                      <div key={i} className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 border-2 border-white flex items-center justify-center text-white text-xs font-bold">
-                        {String.fromCharCode(64 + i)}
-                      </div>
-                    ))}
+              {/* Trust & Report Indicator Box */}
+              <div className="bg-white/80 backdrop-blur-md border border-white/50 rounded-2xl p-4 mt-6 inline-block shadow-sm">
+                {/* Trust Indicators below search */}
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex -space-x-2.5">
+                      {[1, 2, 3, 4].map(i => (
+                        <div key={i} className="w-8 h-8 rounded-full bg-blue-100 border-2 border-white flex items-center justify-center text-blue-700 text-xs font-bold shrink-0 shadow-sm">
+                          {String.fromCharCode(64 + i)}
+                        </div>
+                      ))}
+                    </div>
+                    <span className="text-[13px] font-medium text-gray-600"><strong>7,000+</strong> Caregivers</span>
                   </div>
-                  <span className="text-sm text-gray-600"><strong>7,000+</strong> Verified Nurses</span>
+                  <div className="flex items-center gap-2">
+                    <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                    <span className="text-[13px] font-medium text-gray-600"><strong>4.8/5</strong> Average Rating</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-emerald-500" />
+                    <span className="text-[13px] font-medium text-gray-600"><strong>100%</strong> Verified</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
-                  <span className="text-sm text-gray-600"><strong>4.8</strong> Average Rating</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-emerald-500" />
-                  <span className="text-sm text-gray-600"><strong>100%</strong> Background Checked</span>
+
+                <div className="w-full h-px bg-gray-200/60 my-3"></div>
+
+                {/* Report Homeless Link */}
+                <button onClick={scrollToReport} className="flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium text-[13px] sm:text-[14px] transition-all group">
+                  <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center group-hover:bg-orange-200 transition-colors shrink-0">
+                    <HandHeart className="w-4 h-4" />
+                  </div>
+                  <span className="group-hover:underline">Spot someone in need? Report & Help Homeless</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right Content — Floating Stat Cards over Blended Background */}
+            <div className="relative hidden lg:block h-[500px]">
+              {/* Floating Stat Card — Verified */}
+              <div className="absolute top-[45%] left-[5%] bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-blue-900/10 border border-white p-4 animate-float z-20 animate-fade-in-up delay-300">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-emerald-50 rounded-xl flex items-center justify-center shrink-0">
+                    <CheckCircle className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-[14px] font-bold text-gray-900 leading-tight">100% Verified</p>
+                    <p className="text-[12px] text-gray-500 font-medium">Background Checked</p>
+                  </div>
                 </div>
               </div>
 
-              {/* Report Homeless Link */}
-              <button onClick={scrollToReport} className="flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium text-sm sm:text-base hover:underline transition-all">
-                <HandHeart className="w-4 h-4" />
-                <span>Spot someone in need? Report & Help Homeless</span>
-              </button>
-            </div>
-
-            <div className="relative hidden lg:block">
-              <div className="relative">
-                <div className="bg-gradient-to-br from-blue-100 to-indigo-100 rounded-3xl p-2 aspect-square flex items-center justify-center overflow-hidden shadow-xl">
-                  <div className="w-full h-full rounded-2xl overflow-hidden relative">
-                    <img
-                      src="https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?auto=format&fit=crop&q=80&w=1000"
-                      alt="Care Assistant helping elderly"
-                      className="w-full h-full object-cover object-center"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
+              {/* Floating Stat Card — Rating */}
+              <div className="absolute bottom-[10%] right-0 lg:-right-4 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-blue-900/10 border border-white p-4 animate-float z-20 animate-fade-in-up delay-500" style={{ animationDelay: '1s' }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-amber-50 rounded-xl flex items-center justify-center shrink-0">
+                    <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
                   </div>
-                </div>
-                <div className="absolute -left-8 top-1/4 bg-white rounded-xl shadow-lg p-4 animate-pulse">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">Verified</p>
-                      <p className="text-xs text-gray-500">AI Document Check</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute -right-4 bottom-1/4 bg-white rounded-xl shadow-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
-                      <Star className="w-5 h-5 text-amber-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">4.9 Rating</p>
-                      <p className="text-xs text-gray-500">2,000+ Reviews</p>
-                    </div>
+                  <div>
+                    <p className="text-[14px] font-bold text-gray-900 leading-tight">4.9 Rating</p>
+                    <p className="text-[12px] text-gray-500 font-medium">500+ Families</p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </section >
-
-
+      </section>
 
       {/* ══════════════════════════════════════════════ */}
       {/* HUMANITARIAN INITIATIVE BANNER */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="bg-gradient-to-r from-orange-500 via-red-500 to-orange-600 py-6 sm:py-8" style={{ position: 'relative', zIndex: 10 }}>
+      <section className="bg-gradient-to-r from-orange-500 via-red-500 to-orange-600 py-6 sm:py-8 reveal-on-scroll opacity-0" style={{ position: 'relative', zIndex: 10 }}>
         <div className="absolute inset-0 opacity-10" style={{
           backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) 20px)'
         }}></div>
@@ -394,16 +455,18 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* HOSPITAL PARTNERS - INFINITE SCROLL          */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="border-t border-b border-gray-100 bg-gray-50/50 py-8 overflow-hidden">
+      <section className="border-t border-b border-gray-100 bg-gray-50/50 py-8 overflow-hidden reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-4 text-center">
-          <p className="text-sm font-semibold text-gray-500 uppercase tracking-widest">Trusted by Healthcare Leaders</p>
+          <p className="text-sm font-semibold text-gray-500 uppercase tracking-widest">
+            UPCOMING STATES
+          </p>
         </div>
+
         <div className="relative flex overflow-x-hidden group">
-          {/* Two identical blocks animating together for a mathematically perfect -50% loop */}
           <div className="py-2 flex animate-marquee">
             {[1, 2].map((groupIndex) => (
               <div key={groupIndex} className="flex flex-none items-center gap-12 sm:gap-24 pr-12 sm:pr-24">
-                {['Aster Medcity', 'KIMS', 'Amrita Hospital', 'Lakeshore', 'Medical Trust'].map((hospital, idx) => (
+                {['Telangana', 'Tamil Nadu', 'Karnataka', 'Maharashtra', 'Andhra Pradesh'].map((hospital, idx) => (
                   <div key={`${groupIndex}-${idx}`} className="flex-none flex items-center gap-2 text-gray-400 hover:text-blue-600 transition-colors cursor-default">
                     <Building2 className="w-5 h-5 sm:w-6 sm:h-6" />
                     <span className="text-lg sm:text-2xl font-bold whitespace-nowrap">{hospital}</span>
@@ -415,14 +478,70 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
         </div>
       </section>
 
+
+      {/* ══════════════════════════════════════════════ */}
+      {/* EMOTIONAL HOOK - CARE YOUR LOVED ONES DESERVE */}
+      {/* ══════════════════════════════════════════════ */}
+      <section className="py-20 lg:py-32 bg-white overflow-hidden reveal-on-scroll opacity-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+            <div className="order-2 lg:order-1 relative">
+              <div className="aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl relative z-10 border border-gray-100">
+                <img src="/src/assets/family_nurse_care.png" alt="Caring nurse with family" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                <div className="absolute bottom-6 left-6 right-6 text-white text-left">
+                  <p className="font-bold text-xl drop-shadow-md">Peace of Mind</p>
+                  <p className="text-sm font-medium text-white/90 drop-shadow-md">Knowing your family is in safe hands</p>
+                </div>
+              </div>
+              {/* Decorative background elements */}
+              <div className="absolute -top-6 -left-6 w-32 h-32 bg-blue-100 rounded-full blur-3xl -z-10"></div>
+              <div className="absolute -bottom-6 -right-6 w-40 h-40 bg-orange-100 rounded-full blur-3xl -z-10"></div>
+            </div>
+
+            <div className="order-1 lg:order-2 space-y-6">
+              <Badge variant="info" className="bg-blue-50 text-blue-700 border-blue-100 px-3 py-1.5 shadow-sm inline-flex items-center">
+                <Heart className="w-3.5 h-3.5 mr-1.5 fill-blue-600 text-blue-600" />
+                More Than Just Caregivers
+              </Badge>
+              <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight leading-tight">
+                The care your loved ones <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">truly deserve.</span>
+              </h2>
+              <p className="text-lg text-gray-600 leading-relaxed">
+                We know that inviting someone into your home requires absolute trust. At CareConnect, we don&apos;t just provide medical assistance; we provide compassionate companions who treat your family like their own.
+              </p>
+
+              <div className="space-y-4 pt-2 pb-6">
+                {[
+                  'Dignified and respectful care for the elderly',
+                  'Rigorous behavioural and psychological screening',
+                  'Continuous support and regular check-ins'
+                ].map((point, index) => (
+                  <div key={index} className="flex items-start gap-3">
+                    <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                    <span className="text-gray-700 font-medium">{point}</span>
+                  </div>
+                ))}
+              </div>
+
+              <Button size="lg" className="w-full sm:w-auto bg-gray-900 text-white hover:bg-gray-800 shadow-xl shadow-gray-900/20" onClick={onGetStarted}>
+                Find a Caregiver <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ══════════════════════════════════════════════ */}
       {/* SERVICES SECTION */}
       {/* ══════════════════════════════════════════════ */}
-      <section id="services" className="py-16 lg:py-24">
+      <section id="services" className="py-16 lg:py-24 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Our Healthcare Services</h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-2xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight">Our Healthcare Services</h2>
+            <p className="mt-6 text-lg text-gray-600 max-w-2xl mx-auto">
               Elderly Care, Post-Surgery Care, Newborn Care &amp; Palliative Care — find specialized nurses for your needs
             </p>
           </div>
@@ -437,11 +556,11 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* HOW IT WORKS */}
       {/* ══════════════════════════════════════════════ */}
-      <section id="how-it-works" className="py-16 lg:py-24 bg-gray-50">
+      <section id="how-it-works" className="py-16 lg:py-24 bg-gray-50 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">How CareConnect Works</h2>
-            <p className="mt-4 text-lg text-gray-600">Get quality healthcare at home in 4 simple steps</p>
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight">How CareConnect Works</h2>
+            <p className="mt-6 text-lg text-gray-600">Get quality healthcare at home in 4 simple steps</p>
           </div>
           <div className="grid md:grid-cols-4 gap-8">
             {steps.map((step, index) => (
@@ -468,12 +587,12 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* WHY CHOOSE US */}
       {/* ══════════════════════════════════════════════ */}
-      <section id="why-us" className="py-16 lg:py-24">
+      <section id="why-us" className="py-16 lg:py-24 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
-              <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-6">Why Choose CareConnect?</h2>
-              <p className="text-lg text-gray-600 mb-8">
+              <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight mb-8">Why Choose CareConnect?</h2>
+              <p className="text-lg text-gray-600 mb-10 leading-relaxed">
                 We combine advanced AI technology with human expertise to ensure you get the
                 most reliable and trustworthy healthcare professionals at your doorstep.
               </p>
@@ -533,7 +652,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* STATS SECTION */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="py-16 bg-gradient-to-r from-blue-600 to-indigo-600">
+      <section className="py-16 bg-gradient-to-r from-blue-600 to-indigo-600 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center text-white">
             {[
@@ -554,11 +673,11 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* KERALA DISTRICTS */}
       {/* ══════════════════════════════════════════════ */}
-      <section id="cities" className="py-16 lg:py-24 bg-gray-50">
+      <section id="cities" className="py-16 lg:py-24 bg-gray-50 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">Available Across Kerala</h2>
-            <p className="mt-4 text-lg text-gray-600">Find home nurses across all 14 districts of God&apos;s Own Country</p>
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight">Available Across Kerala</h2>
+            <p className="mt-6 text-lg text-gray-600">Find home nurses across all 14 districts of God&apos;s Own Country</p>
           </div>
           <div className="relative flex overflow-x-hidden group">
             {/* Two identical blocks animating together for a mathematically perfect -50% loop */}
@@ -586,32 +705,58 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* TESTIMONIALS */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24">
+      <section className="py-16 lg:py-24 overflow-hidden reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">What Families Say</h2>
-            <p className="mt-4 text-lg text-gray-600">Real stories from families who found care through CareConnect</p>
+          <div className="text-center mb-16">
+            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight">What Families Say</h2>
+            <p className="mt-6 text-lg text-gray-600">Real stories from families who found care through CareConnect</p>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((testimonial, index) => (
-              <Card key={index} className="p-6">
-                <div className="flex items-center gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className={cn('w-4 h-4', i < testimonial.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200')} />
-                  ))}
-                </div>
-                <p className="text-gray-600 mb-4">&quot;{testimonial.text}&quot;</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                    {testimonial.name[0]}
+
+          {/* Infinite Scroll Container with Edge Fades */}
+          <div className="relative max-w-full mx-auto" style={{ WebkitMaskImage: 'linear-gradient(to right, transparent, black 10%, black 90%, transparent)', maskImage: 'linear-gradient(to right, transparent, black 10%, black 90%, transparent)' }}>
+            <div className="flex w-max animate-marquee hover:[animation-play-state:paused] gap-6 px-4">
+              {/* First Set */}
+              {testimonials.map((testimonial, index) => (
+                <Card key={index} className="w-[350px] md:w-[400px] shrink-0 p-6 shadow-md border border-gray-100 bg-white">
+                  <div className="flex items-center gap-1 mb-4">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className={cn('w-4 h-4', i < testimonial.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200')} />
+                    ))}
                   </div>
-                  <div>
-                    <p className="font-medium text-gray-900">{testimonial.name}</p>
-                    <p className="text-xs text-gray-500">{testimonial.location}</p>
+                  <p className="text-gray-600 mb-6 italic">&quot;{testimonial.text}&quot;</p>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 ${testimonial.color} rounded-full flex items-center justify-center text-gray-700 font-bold shrink-0`}>
+                      {testimonial.name[0]}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 leading-tight">{testimonial.name}</p>
+                      <p className="text-xs text-gray-500 font-medium">{testimonial.location}</p>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              ))}
+
+              {/* Duplicated Set for Seamless Loop */}
+              {testimonials.map((testimonial, index) => (
+                <Card key={`dup-${index}`} className="w-[350px] md:w-[400px] shrink-0 p-6 shadow-md border border-gray-100 bg-white">
+                  <div className="flex items-center gap-1 mb-4">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className={cn('w-4 h-4', i < testimonial.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200')} />
+                    ))}
+                  </div>
+                  <p className="text-gray-600 mb-6 italic">&quot;{testimonial.text}&quot;</p>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 ${testimonial.color} rounded-full flex items-center justify-center text-gray-700 font-bold shrink-0`}>
+                      {testimonial.name[0]}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 leading-tight">{testimonial.name}</p>
+                      <p className="text-xs text-gray-500 font-medium">{testimonial.location}</p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -619,21 +764,20 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* REPORT & HELP HOMELESS - DETAILED SECTION */}
       {/* ══════════════════════════════════════════════ */}
-      <section id="report-help" className="py-16 lg:py-24 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50">
+      <section id="report-help" className="py-16 lg:py-24 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 reveal-on-scroll opacity-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <Badge variant="warning" className="mb-4">
-              <HandHeart className="w-3 h-3 mr-1" /> Humanitarian Initiative
+          <div className="text-center mb-16">
+            <Badge variant="warning" className="mb-6 px-4 py-1.5 shadow-sm bg-white/50 backdrop-blur border-orange-200">
+              <HandHeart className="w-4 h-4 mr-2" /> Humanitarian Initiative
             </Badge>
-            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">
+            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight">
               Help the Homeless. <span className="text-orange-600">Save a Life.</span>
             </h2>
-            <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
+            <p className="mt-6 text-lg text-gray-600 max-w-3xl mx-auto leading-relaxed">
               Spot someone sleeping on the streets or wandering without shelter?
               Take a photo, share the location, and we&apos;ll alert the nearest shelter homes across Kerala to provide immediate help.
             </p>
           </div>
-
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div className="space-y-6">
               <h3 className="text-2xl font-bold text-gray-900">How It Works</h3>
@@ -735,7 +879,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* ══════════════════════════════════════════════ */}
       {/* CTA SECTION */}
       {/* ══════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-gradient-to-br from-blue-600 to-indigo-700">
+      <section className="py-16 lg:py-24 bg-gradient-to-br from-blue-600 to-indigo-700 reveal-on-scroll opacity-0">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center text-white">
           <h2 className="text-3xl lg:text-4xl font-bold mb-4">Ready to Find Your Perfect Home Nurse?</h2>
           <p className="text-lg text-blue-100 mb-8">
@@ -747,7 +891,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
               Find a Nurse Now <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
             <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" onClick={onGetStarted}>
-              <Phone className="w-4 h-4 mr-2" /> Call Us: 1800-123-4567
+              <Phone className="w-4 h-4 mr-2" /> Call Us: +91 9876543210
             </Button>
           </div>
           <p className="text-sm text-blue-200 mt-4">Free consultation • No obligation • 24/7 support</p>
@@ -772,9 +916,14 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
                 AI-powered verification across all 14 districts.
               </p>
               <div className="flex gap-3">
-                {['facebook', 'twitter', 'instagram', 'linkedin'].map((social) => (
-                  <a key={social} href="#" className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-blue-600 transition-colors">
-                    <span className="text-xs uppercase">{social[0]}</span>
+                {[
+                  { name: 'facebook', Icon: Facebook },
+                  { name: 'twitter', Icon: Twitter },
+                  { name: 'instagram', Icon: Instagram },
+                  { name: 'linkedin', Icon: Linkedin }
+                ].map(({ name, Icon }) => (
+                  <a key={name} href="#" aria-label={name} className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-blue-600 transition-colors">
+                    <Icon className="w-4 h-4 text-gray-300" />
                   </a>
                 ))}
               </div>
@@ -798,7 +947,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
             <div>
               <h4 className="text-white font-semibold mb-4">Contact Us</h4>
               <ul className="space-y-3 text-sm">
-                <li className="flex items-center gap-2"><Phone className="w-4 h-4 text-blue-500" /><span>1800-123-4567 (Toll Free)</span></li>
+                <li className="flex items-center gap-2"><Phone className="w-4 h-4 text-blue-500" /><span>+91 9876543210 (Toll Free)</span></li>
                 <li className="flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-500" /><span>All 14 Districts, Kerala, India</span></li>
                 <li className="flex items-center gap-2"><Clock className="w-4 h-4 text-blue-500" /><span>24/7 Customer Support</span></li>
               </ul>
@@ -886,7 +1035,7 @@ const cities = [
 ];
 
 const testimonials = [
-  { text: 'CareConnect helped us find an excellent nurse for my father after his surgery at Medical College Thiruvananthapuram. The AI verification gave us confidence. Highly recommended!', name: 'Lakshmi Nair', location: 'Thiruvananthapuram, Kerala', rating: 5 },
-  { text: 'We needed urgent elderly care for my grandmother in Kochi. Within hours, we had a verified nurse at our doorstep. The service is exceptional and the nurses are so caring.', name: 'Arun Menon', location: 'Kochi, Kerala', rating: 5 },
-  { text: 'As an NRI, knowing my parents in Kozhikode are in good hands with a verified nurse gives me peace of mind. CareConnect is a blessing for Kerala families!', name: 'Deepa Krishnan', location: 'Kozhikode, Kerala', rating: 4 },
+  { text: 'CareConnect helped us find an excellent nurse for my father after his surgery at Medical College Thiruvananthapuram. The AI verification gave us confidence. Highly recommended!', name: 'Lakshmi Nair', location: 'Thiruvananthapuram, Kerala', rating: 5, color: 'bg-blue-100 text-blue-700' },
+  { text: 'We needed urgent elderly care for my grandmother in Kochi. Within hours, we had a verified nurse at our doorstep. The service is exceptional and the nurses are so caring.', name: 'Arun Menon', location: 'Kochi, Kerala', rating: 5, color: 'bg-emerald-100 text-emerald-700' },
+  { text: 'As an NRI, knowing my parents in Kozhikode are in good hands with a verified nurse gives me peace of mind. CareConnect is a blessing for Kerala families!', name: 'Deepa Krishnan', location: 'Kozhikode, Kerala', rating: 5, color: 'bg-purple-100 text-purple-700' },
 ];

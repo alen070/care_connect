@@ -10,23 +10,34 @@
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { NurseProfileDB, UserDB, BookingDB, ShelterReportDB, ShelterDB, NotificationDB } from '@/store/database';
+import { NurseProfileDB, BookingDB, NotificationDB } from '@/store/database';
+import { supabase } from '@/lib/supabase';
 import { Button, Input, Textarea, Card, Badge, Modal, StarRating, EmptyState, Select } from '@/components/ui';
-import { Search, Calendar, MapPin, Star, Clock, MessageSquare, Camera, Send, FileText, Heart, AlertTriangle, User, Pencil, Home, CreditCard, Bell } from 'lucide-react';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { Search, Calendar, MapPin, Star, Clock, MessageSquare, Camera, Send, CheckCircle, Heart, User, Pencil, Home, CreditCard, Bell, LogOut, Key } from 'lucide-react';
 import type { NurseProfile, Booking } from '@/types';
-import type { ShelterReport } from '@/types';
 import { cn } from '@/utils/cn';
+import { uploadImage, validateImageFile } from '@/utils/imageUpload';
 
 // Import New Sub-Modules
 import { UserHome } from './UserHome';
 import { UserPayments } from './UserPayments';
 import { UserNotifications } from './UserNotifications';
 import { UserFeedback } from './UserFeedback';
+import { HomelessReport } from '../shared/ReportManager';
 
 type Tab = 'home' | 'search' | 'bookings' | 'payments' | 'report' | 'feedback' | 'notifications' | 'account';
 
-export function UserDashboard() {
-  const [activeTab, setActiveTab] = useState<Tab>('home');
+export function UserDashboard({ onGoToLanding }: { onGoToLanding: () => void }) {
+  const [activeTab, setActiveTab] = useState<Tab>('search');
+  const [loadedTabs, setLoadedTabs] = useState<Tab[]>(['search']);
+
+  const handleTabChange = (id: string) => {
+    setActiveTab(id as Tab);
+    if (!loadedTabs.includes(id as Tab)) {
+      setLoadedTabs(prev => [...prev, id as Tab]);
+    }
+  };
 
   const tabs = [
     { id: 'home' as Tab, label: 'Overview', icon: <Home className="w-4 h-4" /> },
@@ -40,32 +51,39 @@ export function UserDashboard() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto hide-scrollbar">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer',
-              activeTab === tab.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            )}
-          >
-            {tab.icon} {tab.label}
-          </button>
-        ))}
+    <DashboardLayout
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      onGoToLanding={onGoToLanding}
+    >
+      <div className="w-full">
+        <div style={{ display: activeTab === 'home' ? 'block' : 'none' }}>
+          {loadedTabs.includes('home') && <UserHome onNavigate={handleTabChange} />}
+        </div>
+        <div style={{ display: activeTab === 'search' ? 'block' : 'none' }}>
+          {loadedTabs.includes('search') && <NurseSearch />}
+        </div>
+        <div style={{ display: activeTab === 'bookings' ? 'block' : 'none' }}>
+          {loadedTabs.includes('bookings') && <MyBookings onNavigate={handleTabChange} />}
+        </div>
+        <div style={{ display: activeTab === 'payments' ? 'block' : 'none' }}>
+          {loadedTabs.includes('payments') && <UserPayments />}
+        </div>
+        <div style={{ display: activeTab === 'report' ? 'block' : 'none' }}>
+          {loadedTabs.includes('report') && <HomelessReport />}
+        </div>
+        <div style={{ display: activeTab === 'feedback' ? 'block' : 'none' }}>
+          {loadedTabs.includes('feedback') && <UserFeedback />}
+        </div>
+        <div style={{ display: activeTab === 'notifications' ? 'block' : 'none' }}>
+          {loadedTabs.includes('notifications') && <UserNotifications />}
+        </div>
+        <div style={{ display: activeTab === 'account' ? 'block' : 'none' }}>
+          {loadedTabs.includes('account') && <MyAccount />}
+        </div>
       </div>
-
-      {activeTab === 'home' && <UserHome onNavigate={(t) => setActiveTab(t as Tab)} />}
-      {activeTab === 'search' && <NurseSearch />}
-      {activeTab === 'bookings' && <MyBookings />}
-      {activeTab === 'payments' && <UserPayments />}
-      {activeTab === 'report' && <HomelessReport />}
-      {activeTab === 'feedback' && <UserFeedback />}
-      {activeTab === 'notifications' && <UserNotifications />}
-      {activeTab === 'account' && <MyAccount />}
-    </div>
+    </DashboardLayout>
   );
 }
 
@@ -74,11 +92,26 @@ export function UserDashboard() {
 /* ─────────────────────────────────────────── */
 
 function MyAccount() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const [form, setForm] = useState({ name: '', phone: '', location: '' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!user?.email) return;
+    setResettingPassword(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: `${window.location.origin}/`,
+    });
+    setResettingPassword(false);
+    if (error) {
+      setMessage(`Error: ${error.message}`);
+    } else {
+      setMessage('Password reset email sent! Please check your inbox.');
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -86,22 +119,25 @@ function MyAccount() {
     }
   }, [user]);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage('Photo must be under 2MB');
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setMessage(validationError);
+      setTimeout(() => setMessage(''), 4000);
       return;
     }
     setPhotoUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await updateUser({ profile_photo: reader.result as string });
-      setPhotoUploading(false);
+    const result = await uploadImage('profile', file, user?.id);
+    if (result.success && result.url) {
+      await updateUser({ profile_photo: result.url });
       setMessage('Profile photo updated!');
-      setTimeout(() => setMessage(''), 3000);
-    };
-    reader.readAsDataURL(file);
+    } else {
+      setMessage(result.error || 'Upload failed.');
+    }
+    setPhotoUploading(false);
+    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -130,6 +166,7 @@ function MyAccount() {
               <img
                 src={user.profile_photo}
                 alt={user.name}
+                loading="lazy"
                 className="w-24 h-24 rounded-2xl object-cover border-2 border-gray-100 shadow-sm"
               />
             ) : (
@@ -212,6 +249,40 @@ function MyAccount() {
           </Button>
         </form>
       </Card>
+
+      {/* Account Security / Danger Zone */}
+      <Card className="p-6 border-red-100 bg-red-50/30">
+        <h3 className="text-lg font-semibold text-red-700 mb-4 flex items-center gap-2">
+          Account Security
+        </h3>
+
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-gray-900">Reset Password</p>
+              <p className="text-sm text-gray-500">Receive an email with a link to choose a new password.</p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleResetPassword}
+              disabled={resettingPassword}
+              className="shrink-0 bg-white"
+            >
+              <span className="flex items-center gap-2"><Key className="w-4 h-4" /> {resettingPassword ? 'Sending Link...' : 'Send Reset Link'}</span>
+            </Button>
+          </div>
+
+          <div className="pt-4 border-t border-red-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-medium text-red-700">Log Out</p>
+              <p className="text-sm text-red-600/80">Securely sign out of your account on this device.</p>
+            </div>
+            <Button variant="danger" onClick={() => logout()} className="shrink-0">
+              <span className="flex items-center gap-2"><LogOut className="w-4 h-4" /> Sign Out</span>
+            </Button>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -232,7 +303,7 @@ function NurseSearch() {
   const [showBooking, setShowBooking] = useState(false);
   const [results, setResults] = useState<NurseProfile[]>([]);
   const [filteredResults, setFilteredResults] = useState<NurseProfile[]>([]);
-  const [nurseNames, setNurseNames] = useState<Record<string, string>>({});
+  const [nurseData, setNurseData] = useState<Record<string, { name: string, photo?: string }>>({});
   const [, setRefresh] = useState(0);
 
   // Search nurses (async)
@@ -255,25 +326,25 @@ function NurseSearch() {
     setFilteredResults(filtered);
   }, [results, minRating, minExp, reqAvailable]);
 
-  // Resolve nurse names for the results
+  // Resolve nurse names and photos for the results in a batch
   useEffect(() => {
-    const fetchNames = async () => {
-      const names: Record<string, string> = {};
-      for (const nurse of results) {
-        const u = await UserDB.getById(nurse.userId);
-        names[nurse.userId] = u?.name || 'Unknown';
+    const fetchData = async () => {
+      if (results.length === 0) return;
+      const ids = results.map(n => n.userId);
+      const { data, error } = await supabase.from('profiles').select('id, name, profile_photo').in('id', ids);
+
+      if (!error && data) {
+        const ndata: Record<string, { name: string, photo?: string }> = {};
+        data.forEach(u => {
+          ndata[u.id] = { name: u.name, photo: u.profile_photo };
+        });
+        setNurseData(ndata);
       }
-      setNurseNames(names);
     };
-    if (results.length > 0) fetchNames();
+    fetchData();
   }, [results]);
 
-  const getNurseName = (userId: string) => nurseNames[userId] || 'Unknown';
-
-  const handleBook = useCallback((nurse: NurseProfile) => {
-    setSelectedNurse(nurse);
-    setShowBooking(true);
-  }, []);
+  const getNurseData = (userId: string) => nurseData[userId] || { name: 'Unknown' };
 
   const handleBookingCreated = () => {
     setShowBooking(false);
@@ -341,40 +412,84 @@ function NurseSearch() {
           description="Try adjusting your filters or search criteria."
         />
       ) : (
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-4">
           {filteredResults.map(nurse => (
-            <Card key={nurse.userId} className="p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="font-semibold text-gray-900">{getNurseName(nurse.userId)}</h4>
-                  <div className="flex items-center gap-1 text-sm text-gray-500">
-                    <MapPin className="w-3.5 h-3.5" /> {nurse.location}
-                  </div>
+            <Card key={nurse.userId} className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100 flex flex-col h-full rounded-[1.5rem]">
+              {/* Card Header (Visual Area) - Reduced Height */}
+              <div className="relative h-36 bg-gradient-to-br from-[#eb4899] to-[#d61f69] flex items-center justify-center p-4">
+                {/* Verified Badge */}
+                <div className="absolute top-2.5 left-2.5 bg-white rounded-full p-1 shadow-sm">
+                  <CheckCircle className="w-4 h-4 text-blue-500 fill-blue-50" />
                 </div>
-                <Badge variant="success">Verified</Badge>
+
+                {/* Availability Badge */}
+                {nurse.availability && (
+                  <div className="absolute top-2.5 right-2.5 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />
+                    <span className="text-[9px] font-bold text-[#10b981] uppercase tracking-wider">Available</span>
+                  </div>
+                )}
+
+                {/* Avatar - Reduced Size */}
+                <div className="relative">
+                  {getNurseData(nurse.userId).photo ? (
+                    <img
+                      src={getNurseData(nurse.userId).photo}
+                      alt=""
+                      className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-lg group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border-4 border-white/30 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+                      {getNurseData(nurse.userId).name[0] || '?'}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <p className="text-sm text-gray-600 mb-3 line-clamp-2">{nurse.bio}</p>
+              {/* Card Content - Compact Spacing */}
+              <div className="p-4 flex-grow text-center flex flex-col items-center justify-center">
+                {/* Identity Stack */}
+                <h4 className="text-lg font-bold text-gray-900 mb-0.5 leading-tight">{getNurseData(nurse.userId).name}</h4>
+                <p className="text-xs font-bold text-emerald-600 mb-4 flex items-center gap-1.5 uppercase tracking-wide">
+                  <MapPin className="w-3.5 h-3.5" /> {nurse.location}
+                </p>
 
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {nurse.specializations.map(s => (
-                  <Badge key={s} variant="info">{s}</Badge>
-                ))}
+                {/* Stars Section */}
+                <div className="flex flex-col items-center gap-1.5 mb-4">
+                  <div className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        className={cn(
+                          "w-4 h-4",
+                          star <= Math.round(nurse.rating) ? "text-amber-400 fill-amber-400" : "text-gray-200"
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-gray-400 font-bold uppercase">
+                    {nurse.rating > 0 ? `${nurse.rating.toFixed(1)} Rating` : 'New'}
+                  </span>
+                  <span className="text-[10px] text-gray-500 font-medium bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
+                    ({nurse.totalReviews || 0} reviews)
+                  </span>
+                </div>
+
+                {/* Experience Detail */}
+                <div className="text-[11px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 opacity-40" />
+                  <span>{nurse.experience} Years Experience</span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {nurse.experience} yrs</span>
-                <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 text-amber-400" /> {nurse.rating > 0 ? nurse.rating.toFixed(1) : 'New'}</span>
-                <span className="font-medium text-gray-900">
-                  ₹{nurse.baseRate}/{nurse.rateType.substring(0, 2)}
-                </span>
-              </div>
-
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => handleBook(nurse)}>Book Now</Button>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedNurse(nurse)}>
-                  <FileText className="w-4 h-4" /> View Profile
-                </Button>
+              {/* Footer Button - Smaller Padding */}
+              <div className="px-4 pb-4">
+                <button
+                  onClick={() => setSelectedNurse(nurse)}
+                  className="w-full py-2 border-2 border-blue-500 rounded-full text-blue-600 text-sm font-bold hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 group-hover:shadow-md"
+                >
+                  View Profile
+                </button>
               </div>
             </Card>
           ))}
@@ -384,37 +499,33 @@ function NurseSearch() {
       {/* Nurse Profile Modal */}
       {selectedNurse && !showBooking && (
         <Modal isOpen onClose={() => setSelectedNurse(null)} title="Nurse Profile" size="lg">
-          <NurseProfileView nurse={selectedNurse} onBook={() => setShowBooking(true)} />
+          <NurseProfileView nurse={selectedNurse} nurseData={getNurseData(selectedNurse.userId)} onBook={() => setShowBooking(true)} />
         </Modal>
       )}
 
       {/* Booking Modal */}
       {showBooking && selectedNurse && user && (
         <Modal isOpen onClose={() => setShowBooking(false)} title="Book Nurse Service" size="md">
-          <BookingForm nurse={selectedNurse} userId={user.id} userName={user.name} nurseName={getNurseName(selectedNurse.userId)} onComplete={handleBookingCreated} />
+          <BookingForm nurse={selectedNurse} userId={user.id} userName={user.name} nurseName={getNurseData(selectedNurse.userId).name} onComplete={handleBookingCreated} />
         </Modal>
       )}
     </div>
   );
 }
 
-function NurseProfileView({ nurse, onBook }: { nurse: NurseProfile; onBook: () => void }) {
-  const [nurseName, setNurseName] = useState('');
-
-  useEffect(() => {
-    UserDB.getById(nurse.userId).then(u => {
-      setNurseName(u?.name || 'Unknown');
-    });
-  }, [nurse.userId]);
-
+function NurseProfileView({ nurse, nurseData, nursePhone, hideBooking, onBook }: { nurse: NurseProfile; nurseData: { name: string, photo?: string }; nursePhone?: string; hideBooking?: boolean; onBook?: () => void }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-2xl font-bold">
-          {nurseName[0] || '?'}
-        </div>
+        {nurseData.photo ? (
+          <img src={nurseData.photo} alt={nurseData.name} className="w-16 h-16 rounded-2xl object-cover shadow-sm border border-gray-100" />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-2xl font-bold border border-blue-500">
+            {nurseData.name[0] || '?'}
+          </div>
+        )}
         <div>
-          <h3 className="text-xl font-bold text-gray-900">{nurseName}</h3>
+          <h3 className="text-xl font-bold text-gray-900">{nurseData.name}</h3>
           <p className="text-sm text-gray-500 flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {nurse.location}</p>
           <div className="flex items-center gap-2 mt-1">
             <StarRating rating={Math.round(nurse.rating)} readonly />
@@ -466,16 +577,27 @@ function NurseProfileView({ nurse, onBook }: { nurse: NurseProfile; onBook: () =
 
       <div>
         <h4 className="font-medium text-gray-900 mb-2">Contact</h4>
-        <div className="bg-blue-50/50 rounded-xl p-3 border border-blue-100 flex items-center justify-between">
-          <span className="text-sm text-gray-600">📞 +91 ••••• •••••</span>
-          <Badge variant="warning">Hidden for privacy</Badge>
-        </div>
-        <p className="text-xs text-gray-500 mt-2 italic">* Contact details are automatically revealed once a booking is confirmed by the nurse.</p>
+        {nursePhone ? (
+          <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100 flex items-center justify-between">
+            <span className="text-sm font-medium text-emerald-800">📞 {nursePhone}</span>
+            <Badge variant="success">Confirmed</Badge>
+          </div>
+        ) : (
+          <>
+            <div className="bg-blue-50/50 rounded-xl p-3 border border-blue-100 flex items-center justify-between">
+              <span className="text-sm text-gray-600">📞 +91 ••••• •••••</span>
+              <Badge variant="warning">Hidden</Badge>
+            </div>
+            <p className="text-xs text-gray-500 mt-2 italic">* Contact details are revealed once the booking is confirmed.</p>
+          </>
+        )}
       </div>
 
-      <Button onClick={onBook} className="w-full" size="lg">
-        <Calendar className="w-4 h-4" /> Book This Nurse
-      </Button>
+      {!hideBooking && onBook && (
+        <Button onClick={onBook} className="w-full" size="lg">
+          <Calendar className="w-4 h-4" /> Book This Nurse
+        </Button>
+      )}
     </div >
   );
 }
@@ -582,7 +704,7 @@ function BookingForm({ nurse, userId, userName, nurseName, onComplete }: {
           <span className="font-semibold text-gray-900">Total</span>
           <span className="font-bold text-blue-600 text-lg">₹{totalAmount.toLocaleString()}</span>
         </div>
-        <Badge variant="info">💵 Cash on Delivery (COD)</Badge>
+        <Badge variant="info">💵 Onsite Payment</Badge>
       </div>
 
       <Button type="submit" className="w-full" size="lg" disabled={!form.startDate || !form.endDate || totalDays <= 0 || submitting}>
@@ -596,11 +718,16 @@ function BookingForm({ nurse, userId, userName, nurseName, onComplete }: {
 /*              MY BOOKINGS                    */
 /* ─────────────────────────────────────────── */
 
-function MyBookings() {
+function MyBookings({ onNavigate }: { onNavigate?: (tabId: string) => void }) {
   const { user } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [filterTab, setFilterTab] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'cancelled'>('all');
   const [loading, setLoading] = useState(true);
+
+  // Profile Viewer modal specifically for my bookings
+  const [selectedNurseProfile, setSelectedNurseProfile] = useState<NurseProfile | null>(null);
+  const [nurseModalData, setNurseModalData] = useState<{ name: string, photo?: string } | null>(null);
+  const [nurseContactPhone, setNurseContactPhone] = useState<string>('');
 
   const loadBookings = useCallback(async () => {
     if (!user) return;
@@ -632,6 +759,15 @@ function MyBookings() {
       pending: 'warning', accepted: 'info', rejected: 'danger', completed: 'success', cancelled: 'neutral'
     };
     return <Badge variant={map[status] || 'neutral'}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>;
+  };
+
+  const viewNurseProfile = async (nurseId: string, phone: string, name: string) => {
+    const profile = await NurseProfileDB.getByUserId(nurseId);
+    if (!profile) return;
+    setSelectedNurseProfile(profile);
+    const { data } = await supabase.from('profiles').select('phone, profile_photo').eq('id', nurseId).single();
+    setNurseContactPhone(phone || data?.phone || 'Not provided');
+    setNurseModalData({ name: name, photo: data?.profile_photo });
   };
 
   const filteredBookings = bookings.filter(b => filterTab === 'all' || b.status === filterTab);
@@ -686,25 +822,37 @@ function MyBookings() {
 
               <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
                 <span>📅 {booking.startDate} → {booking.endDate}</span>
-                <span className="text-right font-medium text-gray-900">₹{booking.totalAmount.toLocaleString()}</span>
+                <span className="text-right font-medium text-gray-900">
+                  ₹{booking.totalAmount > 0 ? booking.totalAmount.toLocaleString() : 'Pending sync'}
+                </span>
               </div>
 
               {booking.notes && <p className="text-sm text-gray-500 mb-3">📝 {booking.notes}</p>}
 
-              <div className="mt-auto pt-4 flex gap-2">
+              <div className="mt-auto pt-4 flex flex-col gap-2">
+                {['accepted', 'completed'].includes(booking.status) && (
+                  <Button size="sm" variant="outline" onClick={() => viewNurseProfile(booking.nurseId, booking.nursePhone || '', booking.nurseName)} className="w-full bg-white text-blue-700 border-blue-200 hover:bg-blue-50">
+                    <User className="w-4 h-4 mr-2" /> View Profile & Contact
+                  </Button>
+                )}
+
                 {['pending', 'accepted'].includes(booking.status) && (
                   <Button size="sm" variant="danger" onClick={() => cancelBooking(booking.id)} className="w-full">
                     Cancel Booking
                   </Button>
                 )}
-                {booking.status === 'completed' && !booking.feedback && (
+                {booking.status === 'completed' && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="w-full text-blue-600 bg-blue-50 border-blue-200"
-                    disabled
+                    className="w-full text-green-700 bg-green-50 border-green-200 hover:bg-green-100"
+                    onClick={() => onNavigate?.('feedback')}
                   >
-                    <MessageSquare className="w-4 h-4" /> Go to Feedback Tab
+                    {booking.feedback ? (
+                      <><Star className="w-4 h-4 mr-2" /> View Your Review</>
+                    ) : (
+                      <><MessageSquare className="w-4 h-4 mr-2" /> Go to Feedback Tab</>
+                    )}
                   </Button>
                 )}
               </div>
@@ -712,382 +860,21 @@ function MyBookings() {
           ))}
         </div>
       )}
-    </div>
-  );
-}
 
-/* ─────────────────────────────────────────── */
-/*        HOMELESS LOCATION REPORTING          */
-/* ─────────────────────────────────────────── */
-
-function HomelessReport() {
-  const { user } = useAuth();
-  const [reports, setReports] = useState<ShelterReport[]>([]);
-  const [showForm, setShowForm] = useState(false);
-
-  useEffect(() => {
-    if (user) {
-      ShelterReportDB.getAll().then(all => setReports(all.filter(r => r.reportedBy === user.id)));
-    }
-  }, [user]);
-
-  const refresh = () => {
-    if (user) {
-      ShelterReportDB.getAll().then(all => setReports(all.filter(r => r.reportedBy === user.id)));
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">Humanitarian Help Reports</h3>
-          <p className="text-sm text-gray-500">Report individuals in need to connect them with shelters</p>
-        </div>
-        <Button onClick={() => setShowForm(true)}>
-          <Camera className="w-4 h-4" /> New Report
-        </Button>
-      </div>
-
-      <Card className="p-4 bg-amber-50 border-amber-200">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-amber-800">Privacy Notice</p>
-            <p className="text-xs text-amber-700 mt-1">
-              This feature is designed with privacy-by-design principles. No facial recognition or identity tracking is used. Reports are shared only with verified shelters to provide assistance.
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      {reports.length > 0 && (
-        <div className="space-y-3">
-          {reports.map(report => (
-            <ReportCard key={report.id} report={report} />
-          ))}
-        </div>
-      )}
-
-      {showForm && (
-        <Modal isOpen onClose={() => setShowForm(false)} title="Submit Humanitarian Report" size="lg">
-          <ReportForm userId={user!.id} userName={user!.name} onComplete={() => { setShowForm(false); refresh(); }} />
+      {/* Embedded Nurse Profile Viewer for Accepted Bookings */}
+      {selectedNurseProfile && nurseModalData && (
+        <Modal isOpen onClose={() => setSelectedNurseProfile(null)} title="Nurse Provider Profile" size="lg">
+          <NurseProfileView
+            nurse={selectedNurseProfile}
+            nurseData={nurseModalData}
+            nursePhone={nurseContactPhone}
+            hideBooking={true}
+          />
         </Modal>
       )}
     </div>
   );
 }
 
-function ReportCard({ report }: { report: ShelterReport }) {
-  const [shelterName, setShelterName] = useState('');
 
-  useEffect(() => {
-    if (report.assignedShelterId) {
-      ShelterDB.getById(report.assignedShelterId).then(s => {
-        if (s) setShelterName(s.name);
-      });
-    }
-  }, [report.assignedShelterId]);
 
-  const statusVariant = (): 'success' | 'info' | 'warning' | 'danger' | 'neutral' => {
-    switch (report.status) {
-      case 'assigned': return 'success';
-      case 'resolved': return 'success';
-      case 'notified': return 'info';
-      default: return 'warning';
-    }
-  };
-
-  const statusLabel = () => {
-    switch (report.status) {
-      case 'assigned': return '✅ Accepted by Shelter';
-      case 'resolved': return '✅ Resolved';
-      case 'notified': return '📨 Shelters Notified';
-      default: return '⏳ Reported';
-    }
-  };
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-start gap-4">
-        {/* Image thumbnail */}
-        {report.photo && (
-          <img src={report.photo} alt="Report" className="w-20 h-20 object-cover rounded-lg border shrink-0" />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-medium text-gray-900">{report.locationDescription}</p>
-              <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">{report.description}</p>
-            </div>
-            <Badge variant={statusVariant()}>{statusLabel()}</Badge>
-          </div>
-
-          <p className="text-xs text-gray-400 mt-2">
-            📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)} · {new Date(report.createdAt).toLocaleDateString()}
-          </p>
-
-          {/* Assigned shelter info */}
-          {report.status === 'assigned' && shelterName && (
-            <div className="mt-2 bg-emerald-50 rounded-lg p-2">
-              <p className="text-xs text-emerald-700">
-                🏠 Accepted by <span className="font-semibold">{shelterName}</span>
-                {report.acceptedAt && ` · ${new Date(report.acceptedAt).toLocaleDateString()}`}
-              </p>
-            </div>
-          )}
-
-          {/* Nearby Shelters (for non-assigned) */}
-          {report.status !== 'assigned' && report.nearbyShelters.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-gray-100">
-              <p className="text-xs font-medium text-gray-500 mb-1">Nearby Shelters:</p>
-              {report.nearbyShelters.slice(0, 2).map(s => (
-                <p key={s.id} className="text-xs text-gray-600">🏠 {s.name} — {s.distanceKm?.toFixed(1)} km</p>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function ReportForm({ userId, userName, onComplete }: {
-  userId: string; userName: string; onComplete: () => void;
-}) {
-  const [form, setForm] = useState({
-    photo: '',
-    latitude: 0,
-    longitude: 0,
-    locationName: '',
-    locationDescription: '',
-    description: '',
-  });
-  const [gettingLocation, setGettingLocation] = useState(false);
-  const [locationCaptured, setLocationCaptured] = useState(false);
-  const [locationError, setLocationError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const getLocationName = async (lat: number, lon: number) => {
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`
-      );
-      const data = await res.json();
-      const addr = data.address || {};
-      const parts = [
-        addr.suburb || addr.neighbourhood || addr.village || addr.town,
-        addr.city || addr.county || addr.state_district,
-        addr.state,
-      ].filter(Boolean);
-      return parts.join(', ') || 'Kerala, India';
-    } catch {
-      return 'Kerala, India';
-    }
-  };
-
-  const getLocation = () => {
-    setGettingLocation(true);
-    setLocationError('');
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async pos => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          const name = await getLocationName(lat, lon);
-          setForm(f => ({
-            ...f,
-            latitude: lat,
-            longitude: lon,
-            locationName: name,
-            locationDescription: name,
-          }));
-          setLocationCaptured(true);
-          setGettingLocation(false);
-        },
-        () => {
-          setLocationError('Could not get location. Please type your location manually.');
-          setGettingLocation(false);
-        },
-        { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
-      );
-    } else {
-      setLocationError('Location not supported. Please type your location manually.');
-      setGettingLocation(false);
-    }
-  };
-
-  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          const maxSize = 800; // Compress image to max 800px
-
-          if (width > height && width > maxSize) {
-            height *= maxSize / width;
-            width = maxSize;
-          } else if (height > maxSize) {
-            width *= maxSize / height;
-            height = maxSize;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-
-          setForm(f => ({ ...f, photo: canvas.toDataURL('image/jpeg', 0.6) }));
-        };
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      const allShelters = await ShelterDB.getAll();
-      const shelters = allShelters.map(s => ({
-        ...s,
-        distanceKm: haversineDistance(form.latitude || 9.9312, form.longitude || 76.2673, s.latitude, s.longitude),
-      })).sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-
-      await ShelterReportDB.create({
-        reportedBy: userId,
-        reporterName: userName,
-        photo: form.photo,
-        latitude: form.latitude || 9.9312,
-        longitude: form.longitude || 76.2673,
-        locationDescription: form.locationDescription || form.locationName,
-        description: form.description,
-        nearbyShelters: shelters.slice(0, 3),
-        status: 'reported',
-      });
-
-      onComplete();
-    } catch (err: any) {
-      console.error('Submit Error:', err);
-      alert('Failed to submit report. Please check your network and try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Photo Upload */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          📸 Photo <span className="text-red-500">*</span>
-        </label>
-        <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center bg-gray-50">
-          {form.photo ? (
-            <div className="space-y-2">
-              <img src={form.photo} alt="Report" className="max-h-48 mx-auto rounded-lg object-cover" />
-              <p className="text-xs text-green-600 font-medium">✅ Photo uploaded</p>
-            </div>
-          ) : (
-            <div>
-              <Camera className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Take or upload a photo</p>
-              <p className="text-xs text-gray-400 mt-1">No facial recognition used</p>
-            </div>
-          )}
-          <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="mt-3 text-sm w-full" required />
-        </div>
-      </div>
-
-      {/* Location Section - NO raw coordinates shown */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          📍 Location <span className="text-red-500">*</span>
-        </label>
-
-        {/* Use My Location Button */}
-        <button
-          type="button"
-          onClick={getLocation}
-          disabled={gettingLocation}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-blue-200 bg-blue-50 text-blue-700 font-medium text-sm hover:bg-blue-100 transition-colors disabled:opacity-60 mb-3"
-        >
-          <MapPin className="w-4 h-4" />
-          {gettingLocation ? (
-            <span className="flex items-center gap-2">
-              <span className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-              Detecting your location...
-            </span>
-          ) : (
-            '📍 Use My Current Location'
-          )}
-        </button>
-
-        {/* Location captured success */}
-        {locationCaptured && form.locationName && (
-          <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl mb-3">
-            <span className="text-green-500 text-lg">✅</span>
-            <div>
-              <p className="text-sm font-semibold text-green-800">{form.locationName}</p>
-              <p className="text-xs text-green-600">Location captured successfully</p>
-            </div>
-          </div>
-        )}
-
-        {/* Location error */}
-        {locationError && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl mb-3">
-            <AlertTriangle className="w-4 h-4 text-red-500" />
-            <p className="text-xs text-red-600">{locationError}</p>
-          </div>
-        )}
-
-        {/* Manual location name input */}
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">
-            Location Name <span className="text-gray-400">(auto-filled or type manually)</span>
-          </label>
-          <input
-            type="text"
-            placeholder="e.g., Kakkanad, Ernakulam, Kerala"
-            value={form.locationDescription}
-            onChange={e => setForm(f => ({ ...f, locationDescription: e.target.value }))}
-            required
-            className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-      </div>
-
-      {/* Description */}
-      <Textarea
-        label="Describe the Situation"
-        placeholder="e.g., Elderly man sleeping near bus stand, appears unwell, needs food and shelter..."
-        value={form.description}
-        onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-        required
-      />
-
-      <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-        <Send className="w-4 h-4" /> {submitting ? 'Submitting...' : 'Submit Report & Alert Shelters'}
-      </Button>
-    </form>
-  );
-}
-
-/** Haversine formula for distance between two GPS coordinates */
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}

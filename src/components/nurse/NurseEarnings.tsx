@@ -1,23 +1,27 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { BookingDB } from '@/store/database';
+import { BookingDB, NurseProfileDB } from '@/store/database';
 import { Card, Spinner, EmptyState } from '@/components/ui';
 import { IndianRupee, Wallet, TrendingUp, CheckCircle, Clock } from 'lucide-react';
-import type { Booking } from '@/types';
+import type { Booking, NurseProfile } from '@/types';
+import { calculateBookingAmount } from '@/utils/booking';
 
 export function NurseEarnings() {
     const { user } = useAuth();
     const [completedBookings, setCompletedBookings] = useState<Booking[]>([]);
     const [loading, setLoading] = useState(true);
+    const [profile, setProfile] = useState<NurseProfile | null>(null);
 
     useEffect(() => {
         if (user) {
-            BookingDB.getByNurseId(user.id).then(data => {
-                // Only show completed bookings for earnings calculations
-                const completed = data.filter(b => b.status === 'completed');
-                // Sort by most recent first
+            Promise.all([
+                BookingDB.getByNurseId(user.id),
+                NurseProfileDB.getByUserId(user.id)
+            ]).then(([bookingsData, profileData]) => {
+                const completed = bookingsData.filter(b => b.status === 'completed');
                 completed.sort((a, b) => new Date(b.endDate).getTime() - new Date(a.endDate).getTime());
                 setCompletedBookings(completed);
+                if (profileData) setProfile(profileData);
                 setLoading(false);
             });
         }
@@ -30,24 +34,25 @@ export function NurseEarnings() {
     const todayStr = new Date().toISOString().split('T')[0];
     const thisMonthStr = todayStr.substring(0, 7); // YYYY-MM
 
-    const lifetimeEarnings = completedBookings.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+    const lifetimeEarnings = completedBookings.reduce((sum: number, b: Booking) =>
+        sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
     const monthEarnings = completedBookings
-        .filter(b => b.endDate.startsWith(thisMonthStr) || b.createdAt.startsWith(thisMonthStr))
-        .reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+        .filter((b: Booking) => b.endDate.startsWith(thisMonthStr) || b.createdAt.startsWith(thisMonthStr))
+        .reduce((sum: number, b: Booking) => sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
     const todayEarnings = completedBookings
-        .filter(b => b.endDate === todayStr)
-        .reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+        .filter((b: Booking) => b.endDate === todayStr)
+        .reduce((sum: number, b: Booking) => sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
-    // Separate by payment method (assuming all are complete, paymentStatus might be 'paid' or 'pending')
+    // Separate by payment method 
     const codEarnings = completedBookings
-        .filter(b => b.paymentMethod === 'cod')
-        .reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+        .filter((b: Booking) => b.paymentMethod === 'cod')
+        .reduce((sum: number, b: Booking) => sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
     const onlineEarnings = completedBookings
-        .filter(b => b.paymentMethod === 'online')
-        .reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+        .filter((b: Booking) => b.paymentMethod === 'online')
+        .reduce((sum: number, b: Booking) => sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
     return (
         <div className="space-y-6">
@@ -92,7 +97,7 @@ export function NurseEarnings() {
                                 <span className="font-semibold">₹{onlineEarnings.toLocaleString()}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-gray-600 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-amber-500" /> Cash (COD)</span>
+                                <span className="text-gray-600 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-amber-500" /> Onsite Payment</span>
                                 <span className="font-semibold">₹{codEarnings.toLocaleString()}</span>
                             </div>
                         </div>
@@ -124,30 +129,33 @@ export function NurseEarnings() {
                                 </tr>
                             </thead>
                             <tbody className="text-sm">
-                                {completedBookings.map(booking => (
-                                    <tr key={booking.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="py-4 px-5 font-mono text-gray-500 text-xs">{booking.id.split('-')[0]}</td>
-                                        <td className="py-4 px-5 font-medium text-gray-900">{booking.userName}</td>
-                                        <td className="py-4 px-5 text-gray-600">{booking.endDate}</td>
-                                        <td className="py-4 px-5">
-                                            <span className="capitalize text-gray-600">{booking.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online'}</span>
-                                        </td>
-                                        <td className="py-4 px-5">
-                                            {booking.paymentStatus === 'completed' ? (
-                                                <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-medium">
-                                                    <CheckCircle className="w-3.5 h-3.5" /> Paid
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full text-xs font-medium">
-                                                    <Clock className="w-3.5 h-3.5" /> Pending
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="py-4 px-5 font-bold text-gray-900 text-right">
-                                            ₹{booking.totalAmount.toLocaleString()}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {completedBookings.map((booking: Booking) => {
+                                    const isPaid = booking.paymentStatus === 'completed' || booking.status === 'completed';
+                                    return (
+                                        <tr key={booking.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="py-4 px-5 font-mono text-gray-500 text-xs">{booking.id.split('-')[0]}</td>
+                                            <td className="py-4 px-5 font-medium text-gray-900">{booking.userName}</td>
+                                            <td className="py-4 px-5 text-gray-600">{booking.endDate}</td>
+                                            <td className="py-4 px-5">
+                                                <span className="capitalize text-gray-600">{booking.paymentMethod === 'cod' ? 'Onsite Payment' : 'Online'}</span>
+                                            </td>
+                                            <td className="py-4 px-5">
+                                                {isPaid ? (
+                                                    <span className="inline-flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-medium">
+                                                        <CheckCircle className="w-3.5 h-3.5" /> Paid
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full text-xs font-medium">
+                                                        <Clock className="w-3.5 h-3.5" /> Pending
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-4 px-5 font-bold text-gray-900 text-right">
+                                                ₹{calculateBookingAmount(booking, profile?.baseRate || 0, profile?.rateType).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

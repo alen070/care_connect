@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { BookingDB, NotificationDB } from '@/store/database';
 import { Card, Badge, Button, EmptyState } from '@/components/ui';
-import { CreditCard, CheckCircle, Clock, FileText, Download, Building } from 'lucide-react';
+import { CreditCard, CheckCircle, Clock, Download, Building } from 'lucide-react';
 import type { Booking } from '@/types';
+import { jsPDF } from 'jspdf';
 
 export function UserPayments() {
     const { user } = useAuth();
@@ -66,31 +67,63 @@ export function UserPayments() {
     };
 
     const downloadReceipt = (booking: Booking) => {
-        const text = `
-CARECONNECT INVOICE
-===================
-Booking ID: ${booking.id}
-Date: ${new Date().toLocaleDateString()}
+        const doc = new jsPDF();
+        const marginLeft = 20;
+        let yPos = 30;
 
-Patient: ${booking.userName}
-Care Provider: ${booking.nurseName}
-Service: ${booking.serviceType.toUpperCase()}
-Amount: ₹${booking.totalAmount}
-Payment Method: ${booking.paymentMethod.toUpperCase()}
-Status: ${booking.paymentStatus?.toUpperCase() || 'PENDING'}
+        // Header Title
+        doc.setFontSize(22);
+        doc.setTextColor(30, 64, 175); // careconnect blue approx
+        doc.setFont('helvetica', 'bold');
+        doc.text('CARECONNECT', marginLeft, yPos);
+        yPos += 10;
 
-Thank you for using CareConnect!
-    `.trim();
+        doc.setFontSize(14);
+        doc.setTextColor(100, 116, 139);
+        doc.setFont('helvetica', 'normal');
+        doc.text('INVOICE / RECEIPT', marginLeft, yPos);
+        yPos += 20;
 
-        const blob = new Blob([text], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Invoice-${booking.id.slice(0, 8)}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // Booking details line headers
+        doc.setFontSize(12);
+        doc.setTextColor(0, 0, 0);
+
+        const details = [
+            { label: 'Booking ID:', value: booking.id.toUpperCase() },
+            { label: 'Date Generated:', value: new Date().toLocaleDateString() },
+            { label: 'Patient Name:', value: booking.userName },
+            { label: 'Care Provider:', value: booking.nurseName },
+            { label: 'Service Provided:', value: `${booking.serviceType.toUpperCase()} CARE` },
+            { label: 'Payment Method:', value: booking.paymentMethod.toUpperCase() },
+            { label: 'Payment Status:', value: booking.paymentStatus === 'completed' || booking.status === 'completed' ? 'COMPLETED / PAID' : 'PENDING' }
+        ];
+
+        details.forEach(item => {
+            doc.setFont('helvetica', 'bold');
+            doc.text(item.label, marginLeft, yPos);
+            doc.setFont('helvetica', 'normal');
+            doc.text(item.value, marginLeft + 45, yPos);
+            yPos += 10;
+        });
+
+        yPos += 10;
+
+        // Amount box
+        doc.setFillColor(241, 245, 249);
+        doc.rect(marginLeft, yPos, 170, 20, 'F');
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`TOTAL AMOUNT:`, marginLeft + 5, yPos + 14);
+        doc.text(`INR ${booking.totalAmount.toLocaleString()}`, marginLeft + 120, yPos + 14);
+        yPos += 40;
+
+        // Footer
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 116, 139);
+        doc.text('Thank you for choosing CareConnect!', marginLeft, yPos);
+
+        doc.save(`Invoice-${booking.id.slice(0, 8)}.pdf`);
     };
 
     if (loading) return <div className="animate-pulse h-64 bg-gray-100 rounded-xl" />;
@@ -115,66 +148,72 @@ Thank you for using CareConnect!
             </div>
 
             <div className="grid gap-4">
-                {bookings.map((booking) => (
-                    <Card key={booking.id} className="p-5 overflow-hidden relative">
-                        {/* Status Ribbon */}
-                        <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white rounded-bl-lg
-              ${booking.paymentStatus === 'completed' ? 'bg-emerald-500' : 'bg-amber-500'}
+                {bookings.map((booking) => {
+                    const isPaid = booking.paymentStatus === 'completed' || booking.status === 'completed';
+
+                    return (
+                        <Card key={booking.id} className="p-5 overflow-hidden relative">
+                            {/* Status Ribbon */}
+                            <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white rounded-bl-lg
+              ${isPaid ? 'bg-emerald-500' : 'bg-amber-500'}
             `}>
-                            {booking.paymentStatus === 'completed' ? 'PAID' : 'DUE'}
-                        </div>
-
-                        <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center mt-2">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-gray-900">{booking.serviceType} Care</span>
-                                    <span className="text-gray-400">•</span>
-                                    <span className="text-sm text-gray-600">{new Date(booking.startDate).toLocaleDateString()}</span>
-                                </div>
-                                <p className="text-sm text-gray-500 flex items-center gap-1">
-                                    <Building className="w-4 h-4" /> Provider: {booking.nurseName}
-                                </p>
-                                <div className="flex gap-2 mt-2">
-                                    <Badge variant="neutral">{booking.paymentMethod.toUpperCase()}</Badge>
-                                    <span className="text-sm font-medium text-gray-900">₹{booking.totalAmount}</span>
-                                </div>
+                                {isPaid ? 'PAID' : 'DUE'}
                             </div>
 
-                            <div className="flex items-center gap-3 w-full md:w-auto">
-                                {booking.paymentStatus !== 'completed' && booking.paymentMethod === 'online' && (
-                                    <Button
-                                        onClick={() => handlePayOnline(booking)}
-                                        loading={payingFor === booking.id}
-                                        className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
-                                    >
-                                        Pay ₹{booking.totalAmount} Online
-                                    </Button>
-                                )}
+                            <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center mt-2">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-gray-900">{booking.serviceType} Care</span>
+                                        <span className="text-gray-400">•</span>
+                                        <span className="text-sm text-gray-600">{new Date(booking.startDate).toLocaleDateString()}</span>
+                                    </div>
+                                    <p className="text-sm text-gray-500 flex items-center gap-1">
+                                        <Building className="w-4 h-4" /> Provider: {booking.nurseName}
+                                    </p>
+                                    <div className="flex gap-2 mt-2">
+                                        <Badge variant="neutral">{booking.paymentMethod.toUpperCase()}</Badge>
+                                        <span className="text-sm font-medium text-gray-900">
+                                            ₹{booking.totalAmount > 0 ? booking.totalAmount.toLocaleString() : 'Pending sync'}
+                                        </span>
+                                    </div>
+                                </div>
 
-                                {booking.paymentStatus !== 'completed' && booking.paymentMethod === 'cod' && (
-                                    <Badge variant="warning" className="px-3 py-2 flex items-center gap-1">
-                                        <Clock className="w-4 h-4" /> Pay via Cash on Delivery
-                                    </Badge>
-                                )}
-
-                                {booking.paymentStatus === 'completed' && (
-                                    <>
-                                        <Badge variant="success" className="px-3 py-2 flex items-center gap-1">
-                                            <CheckCircle className="w-4 h-4" /> Payment Completed
-                                        </Badge>
+                                <div className="flex items-center gap-3 w-full md:w-auto">
+                                    {!isPaid && booking.paymentMethod === 'online' && (
                                         <Button
-                                            variant="outline"
-                                            onClick={() => downloadReceipt(booking)}
-                                            className="flex items-center gap-2 shrink-0"
+                                            onClick={() => handlePayOnline(booking)}
+                                            loading={payingFor === booking.id}
+                                            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
                                         >
-                                            <Download className="w-4 h-4" /> Receipt
+                                            Pay ₹{booking.totalAmount > 0 ? booking.totalAmount : ''} Online
                                         </Button>
-                                    </>
-                                )}
+                                    )}
+
+                                    {!isPaid && booking.paymentMethod === 'cod' && (
+                                        <Badge variant="warning" className="px-3 py-2 flex items-center gap-1">
+                                            <Clock className="w-4 h-4" /> Pay Onsite
+                                        </Badge>
+                                    )}
+
+                                    {isPaid && (
+                                        <>
+                                            <Badge variant="success" className="px-3 py-2 flex items-center gap-1">
+                                                <CheckCircle className="w-4 h-4" /> Payment Completed
+                                            </Badge>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => downloadReceipt(booking)}
+                                                className="flex items-center gap-2 shrink-0"
+                                            >
+                                                <Download className="w-4 h-4" /> Receipt
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </Card>
-                ))}
+                        </Card>
+                    );
+                })}
             </div>
         </div>
     );

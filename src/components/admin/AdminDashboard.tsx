@@ -9,17 +9,19 @@
  */
 
 import { useState, useEffect } from 'react';
-import { UserDB, NurseProfileDB, DocumentDB, BookingDB, ShelterReportDB, ShelterDB, AdminLogDB, NotificationDB } from '@/store/database';
-import { Button, Card, Badge, Modal, StatsCard, EmptyState, ProgressBar, Input } from '@/components/ui';
+import { UserDB, NurseProfileDB, DocumentDB, BookingDB, ShelterReportDB, ShelterDB, AdminLogDB, NotificationDB, StatsDB } from '@/store/database';
+import { Button, Card, Badge, Modal, StatsCard, EmptyState, ProgressBar, Input, Select, ImageViewerModal } from '@/components/ui';
 import {
   LayoutDashboard, Users, Stethoscope, FileCheck, Calendar, MapPin,
   CheckCircle, XCircle, AlertTriangle, Eye, Shield, Clock, TrendingUp,
-  Trash2, Building, Camera, Pencil, User as UserIcon, BarChart3, ScrollText, Bell, Activity
+  Trash2, Building, Camera, Pencil, User as UserIcon, BarChart3, ScrollText, Bell, Activity, LogOut, Download
 } from 'lucide-react';
-import type { NurseProfile, NurseDocument, Booking, ShelterReport, Shelter } from '@/types';
-import type { User } from '@/types';
+import type { NurseProfile, NurseDocument, Booking, ShelterReport, Shelter, User } from '@/types';
+import { jsPDF } from 'jspdf';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/store/AuthContext';
+import { uploadImage, validateImageFile } from '@/utils/imageUpload';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { AdminAIMonitor } from './AdminAIMonitor';
 import { AdminAnalytics } from './AdminAnalytics';
 import { AdminSystemLogs } from './AdminSystemLogs';
@@ -27,8 +29,16 @@ import { AdminNotifications } from './AdminNotifications';
 
 type Tab = 'overview' | 'nurses' | 'ai' | 'users' | 'shelters' | 'bookings' | 'reports' | 'notifications' | 'analytics' | 'logs' | 'account';
 
-export function AdminDashboard() {
+export function AdminDashboard({ onGoToLanding }: { onGoToLanding: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [loadedTabs, setLoadedTabs] = useState<Tab[]>(['overview']);
+
+  const handleTabChange = (id: string) => {
+    setActiveTab(id as Tab);
+    if (!loadedTabs.includes(id as Tab)) {
+      setLoadedTabs(prev => [...prev, id as Tab]);
+    }
+  };
 
   const tabs = [
     { id: 'overview' as Tab, label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -45,29 +55,48 @@ export function AdminDashboard() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap cursor-pointer',
-              activeTab === tab.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900')}>
-            {tab.icon} {tab.label}
-          </button>
-        ))}
+    <DashboardLayout
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      onGoToLanding={onGoToLanding}
+    >
+      <div className="w-full">
+        <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
+          {loadedTabs.includes('overview') && <OverviewPanel />}
+        </div>
+        <div style={{ display: activeTab === 'nurses' ? 'block' : 'none' }}>
+          {loadedTabs.includes('nurses') && <NurseManagement />}
+        </div>
+        <div style={{ display: activeTab === 'ai' ? 'block' : 'none' }}>
+          {loadedTabs.includes('ai') && <AdminAIMonitor />}
+        </div>
+        <div style={{ display: activeTab === 'users' ? 'block' : 'none' }}>
+          {loadedTabs.includes('users') && <UserManagement />}
+        </div>
+        <div style={{ display: activeTab === 'shelters' ? 'block' : 'none' }}>
+          {loadedTabs.includes('shelters') && <ShelterManagement />}
+        </div>
+        <div style={{ display: activeTab === 'bookings' ? 'block' : 'none' }}>
+          {loadedTabs.includes('bookings') && <BookingManagement />}
+        </div>
+        <div style={{ display: activeTab === 'reports' ? 'block' : 'none' }}>
+          {loadedTabs.includes('reports') && <ReportManagement />}
+        </div>
+        <div style={{ display: activeTab === 'notifications' ? 'block' : 'none' }}>
+          {loadedTabs.includes('notifications') && <AdminNotifications />}
+        </div>
+        <div style={{ display: activeTab === 'analytics' ? 'block' : 'none' }}>
+          {loadedTabs.includes('analytics') && <AdminAnalytics />}
+        </div>
+        <div style={{ display: activeTab === 'logs' ? 'block' : 'none' }}>
+          {loadedTabs.includes('logs') && <AdminSystemLogs />}
+        </div>
+        <div style={{ display: activeTab === 'account' ? 'block' : 'none' }}>
+          {loadedTabs.includes('account') && <AdminMyAccount />}
+        </div>
       </div>
-
-      {activeTab === 'overview' && <OverviewPanel />}
-      {activeTab === 'nurses' && <NurseManagement />}
-      {activeTab === 'ai' && <AdminAIMonitor />}
-      {activeTab === 'users' && <UserManagement />}
-      {activeTab === 'shelters' && <ShelterManagement />}
-      {activeTab === 'bookings' && <BookingManagement />}
-      {activeTab === 'reports' && <ReportManagement />}
-      {activeTab === 'notifications' && <AdminNotifications />}
-      {activeTab === 'analytics' && <AdminAnalytics />}
-      {activeTab === 'logs' && <AdminSystemLogs />}
-      {activeTab === 'account' && <AdminMyAccount />}
-    </div>
+    </DashboardLayout>
   );
 }
 
@@ -84,38 +113,20 @@ function OverviewPanel() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   useEffect(() => {
-    const loadStats = async () => {
+    const loadOverview = async () => {
       try {
-        const [users, nurses, bookings, reports, documents, shelters] = await Promise.all([
-          UserDB.getAll(),
-          NurseProfileDB.getAll(),
-          BookingDB.getAll(),
-          ShelterReportDB.getAllOverview(),
-          DocumentDB.getAllOverview(),
-          ShelterDB.getAll(),
+        const [overviewStats, bookings] = await Promise.all([
+          StatsDB.getOverview(),
+          BookingDB.getRecent(5),
         ]);
 
-        setStats({
-          totalUsers: users.filter(u => u.role === 'user').length,
-          totalNurses: nurses.length,
-          pendingVerification: nurses.filter(n => n.verificationStatus === 'pending').length,
-          approvedNurses: nurses.filter(n => n.verificationStatus === 'approved').length,
-          totalBookings: bookings.length,
-          activeBookings: bookings.filter(b => b.status === 'accepted').length,
-          totalShelters: shelters.length,
-          activeReports: reports.filter(r => r.status !== 'resolved').length,
-          totalReports: reports.length,
-          documentsUploaded: documents.length,
-          genuineDocuments: documents.filter(d => d.aiAnalysis?.result === 'genuine').length,
-          suspectedForgery: documents.filter(d => d.aiAnalysis?.result === 'suspected_forgery').length,
-        });
-
-        setRecentBookings(bookings.slice(-5).reverse());
+        setStats(overviewStats);
+        setRecentBookings(bookings);
       } catch (e) {
         console.error('Failed to load overview stats:', e);
       }
     };
-    loadStats();
+    loadOverview();
   }, []);
 
   return (
@@ -235,6 +246,16 @@ function NurseManagement() {
         target: nurseName,
         details: `${status === 'approved' ? 'Approved' : 'Rejected'} nurse verification`,
       });
+
+      // Notify the nurse
+      await NotificationDB.create({
+        userId: nurseId,
+        title: status === 'approved' ? 'Verification Approved' : 'Verification Rejected',
+        message: status === 'approved'
+          ? 'Congratulations! Your profile has been thoroughly verified and approved. You can now accept patient bookings.'
+          : 'Your profile verification was unsuccessful. Please check your documents and re-upload valid proofs or contact support.',
+        type: status === 'approved' ? 'success' : 'error',
+      });
     }
     const allNurses = await NurseProfileDB.getAllOverview();
     setNurses(allNurses);
@@ -250,73 +271,99 @@ function NurseManagement() {
     const docs = nurseDocs[nurse.userId] || [];
 
     return (
-      <Card key={nurse.userId} className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white font-bold">
-              {user?.name[0] || 'N'}
-            </div>
-            <div>
-              <h4 className="font-semibold text-gray-900">{user?.name}</h4>
-              <p className="text-xs text-gray-500">{user?.email} · {nurse.location}</p>
-            </div>
+      <Card key={nurse.userId} className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100 flex flex-col h-full rounded-[1.5rem]">
+        {/* Card Header */}
+        <div className="relative h-32 bg-gradient-to-br from-[#eb4899] to-[#d61f69] flex items-center justify-center p-4">
+          <div className="absolute top-2.5 left-2.5 bg-white rounded-full p-1 shadow-sm">
+            <CheckCircle className="w-4 h-4 text-blue-500 fill-blue-50" />
           </div>
-          <Badge variant={nurse.verificationStatus === 'approved' ? 'success' : nurse.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
-            {nurse.verificationStatus}
-          </Badge>
-        </div>
 
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {nurse.specializations.map(s => <Badge key={s} variant="info">{s}</Badge>)}
-        </div>
+          <div className="absolute top-2.5 right-2.5">
+            <Badge variant={nurse.verificationStatus === 'approved' ? 'success' : nurse.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
+              {nurse.verificationStatus}
+            </Badge>
+          </div>
 
-        <div className="text-sm text-gray-600 mb-3">
-          <p>📋 {nurse.experience} years experience · ₹{nurse.baseRate} / {nurse.rateType}</p>
-          <p>📄 {docs.length} document{docs.length !== 1 ? 's' : ''} uploaded</p>
-        </div>
-
-        {/* AI Summary for documents */}
-        {docs.length > 0 && (
-          <div className="bg-gray-50 rounded-lg p-3 mb-3 space-y-1">
-            {docs.map(doc => (
-              <div key={doc.id} className="flex items-center justify-between text-xs">
-                <span className="text-gray-600">{doc.fileName}</span>
-                {doc.aiAnalysis ? (
-                  <Badge variant={doc.aiAnalysis.result === 'genuine' ? 'success' : 'danger'}>
-                    {doc.aiAnalysis.result === 'genuine' ? '✓' : '⚠'} {(doc.aiAnalysis.confidenceScore * 100).toFixed(0)}%
-                  </Badge>
-                ) : (
-                  <Badge variant="neutral">No analysis</Badge>
-                )}
+          <div className="relative">
+            {user?.profile_photo && user.profile_photo.length > 10 ? (
+              <img src={user.profile_photo} alt="" className="w-20 h-20 rounded-full object-cover border-4 border-white shadow-lg" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border-4 border-white/30 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+                {user?.name[0] || '?'}
               </div>
-            ))}
+            )}
           </div>
-        )}
+        </div>
 
-        <div className="flex gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setSelectedNurse(nurse.userId)}>
-            <Eye className="w-3.5 h-3.5" /> Review Details
+        {/* Card Content */}
+        <div className="p-4 flex-grow text-center flex flex-col items-center">
+          <h4 className="text-lg font-bold text-gray-900 mb-0.5 leading-tight">{user?.name}</h4>
+          <p className="text-xs font-bold text-emerald-600 mb-3 flex items-center gap-1.5 uppercase tracking-wide">
+            <MapPin className="w-3.5 h-3.5" /> {nurse.location}
+          </p>
+
+          <div className="flex flex-wrap justify-center gap-1.5 mb-4">
+            {nurse.specializations.slice(0, 2).map(s => <Badge key={s} variant="info" className="text-[10px]">{s}</Badge>)}
+            {nurse.specializations.length > 2 && <Badge variant="neutral" className="text-[10px]">+{nurse.specializations.length - 2}</Badge>}
+          </div>
+
+          <div className="grid grid-cols-2 w-full gap-2 mb-4 pt-4 border-t border-gray-50">
+            <div className="text-center">
+              <p className="text-xs font-bold text-gray-900">{nurse.experience} yrs</p>
+              <p className="text-[10px] text-gray-500 uppercase">Exp.</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-bold text-gray-900">{docs.length}</p>
+              <p className="text-[10px] text-gray-500 uppercase">Docs</p>
+            </div>
+          </div>
+
+          {/* AI Quick Status */}
+          {docs.length > 0 && (
+            <div className="w-full bg-gray-50 rounded-xl p-2 mb-4 flex items-center justify-around">
+              {docs.slice(0, 3).map(doc => (
+                <div key={doc.id} title={doc.fileName}>
+                  {doc.aiAnalysis?.result === 'genuine' ? (
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  ) : doc.aiAnalysis?.result === 'suspected_forgery' ? (
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <Clock className="w-4 h-4 text-gray-400" />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Card Footer Actions */}
+        <div className="px-4 pb-4 mt-auto space-y-2">
+          <Button className="w-full justify-center" size="sm" variant="ghost" onClick={() => setSelectedNurse(nurse.userId)}>
+            <Eye className="w-3.5 h-3.5" /> Review Profile
           </Button>
-          {nurse.verificationStatus === 'pending' && (
-            <>
-              <Button size="sm" variant="success" onClick={() => handleVerification(nurse.userId, 'approved')}>
-                <CheckCircle className="w-3.5 h-3.5" /> Approve
+
+          <div className="flex gap-2">
+            {nurse.verificationStatus === 'pending' && (
+              <>
+                <Button className="flex-1 justify-center" size="sm" variant="success" onClick={() => handleVerification(nurse.userId, 'approved')}>
+                  Approve
+                </Button>
+                <Button className="flex-1 justify-center" size="sm" variant="danger" onClick={() => handleVerification(nurse.userId, 'rejected')}>
+                  Reject
+                </Button>
+              </>
+            )}
+            {nurse.verificationStatus === 'rejected' && (
+              <Button className="w-full justify-center" size="sm" variant="success" onClick={() => handleVerification(nurse.userId, 'approved')}>
+                Re-Approve
               </Button>
-              <Button size="sm" variant="danger" onClick={() => handleVerification(nurse.userId, 'rejected')}>
-                <XCircle className="w-3.5 h-3.5" /> Reject
+            )}
+            {nurse.verificationStatus === 'approved' && (
+              <Button className="w-full justify-center" size="sm" variant="danger" onClick={() => handleVerification(nurse.userId, 'rejected')}>
+                Revoke Access
               </Button>
-            </>
-          )}
-          {nurse.verificationStatus === 'rejected' && (
-            <Button size="sm" variant="success" onClick={() => handleVerification(nurse.userId, 'approved')}>
-              Re-Approve
-            </Button>
-          )}
-          {nurse.verificationStatus === 'approved' && (
-            <Button size="sm" variant="danger" onClick={() => handleVerification(nurse.userId, 'rejected')}>
-              Revoke
-            </Button>
-          )}
+            )}
+          </div>
         </div>
       </Card>
     );
@@ -324,34 +371,47 @@ function NurseManagement() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <Stethoscope className="w-5 h-5 text-emerald-600" /> Nurse Professionals
+        </h3>
+        <Badge variant="info">{nurses.length} Total</Badge>
+      </div>
+
       {nurses.length === 0 && (
         <EmptyState icon={<Stethoscope className="w-8 h-8 text-gray-400" />} title="No nurses registered" description="No nurses have signed up on the platform yet." />
       )}
 
       {pendingNurses.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Clock className="w-5 h-5 text-amber-600" /> Pending Verification ({pendingNurses.length})
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            <Clock className="w-4 h-4" /> Awaiting Verification ({pendingNurses.length})
           </h3>
-          {pendingNurses.map(renderNurseCard)}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {pendingNurses.map(renderNurseCard)}
+          </div>
         </div>
       )}
 
       {approvedNurses.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-emerald-600" /> Approved ({approvedNurses.length})
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            <CheckCircle className="w-4 h-4" /> Approved Providers ({approvedNurses.length})
           </h3>
-          {approvedNurses.map(renderNurseCard)}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {approvedNurses.map(renderNurseCard)}
+          </div>
         </div>
       )}
 
       {rejectedNurses.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <XCircle className="w-5 h-5 text-red-600" /> Rejected ({rejectedNurses.length})
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            <XCircle className="w-4 h-4" /> Rejected ({rejectedNurses.length})
           </h3>
-          {rejectedNurses.map(renderNurseCard)}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {rejectedNurses.map(renderNurseCard)}
+          </div>
         </div>
       )}
 
@@ -382,9 +442,13 @@ function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (
     <div className="space-y-6">
       {/* Nurse Info */}
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-2xl font-bold">
-          {user.name[0]}
-        </div>
+        {user.profile_photo && user.profile_photo.length > 10 ? (
+          <img src={user.profile_photo} alt={user.name} className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-50 shadow-sm" />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-2xl font-bold">
+            {user.name[0]}
+          </div>
+        )}
         <div>
           <h3 className="text-xl font-bold text-gray-900">{user.name}</h3>
           <p className="text-sm text-gray-500">{user.email} · 📞 {user.phone}</p>
@@ -441,13 +505,11 @@ function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (
                   {/* AI Metrics */}
                   {doc.aiAnalysis && (
                     <div className="space-y-2">
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        <MetricBar label="Edge" value={doc.aiAnalysis.edgeConsistency} />
-                        <MetricBar label="Texture" value={doc.aiAnalysis.textureAnalysis} />
-                        <MetricBar label="Compress" value={doc.aiAnalysis.compressionArtifacts} />
-                        <MetricBar label="OCR" value={doc.aiAnalysis.ocrConsistency} />
-                        <MetricBar label="Font" value={doc.aiAnalysis.fontConsistency} />
-                        <MetricBar label="Align" value={doc.aiAnalysis.alignmentScore} />
+                      <div className="grid grid-cols-2 gap-4 text-xs">
+                        <MetricBar label="OCR Match Confidence" value={doc.aiAnalysis.confidenceScore} />
+                        <MetricBar label="Text Clarity" value={doc.aiAnalysis.ocrConsistency} />
+                        <MetricBar label="Format Match" value={doc.aiAnalysis.alignmentScore} />
+                        <MetricBar label="Keyword Match" value={doc.aiAnalysis.fontConsistency} />
                       </div>
 
                       {doc.aiAnalysis.anomalies.length > 0 && (
@@ -518,7 +580,7 @@ function UserManagement() {
   useEffect(() => { reload(); }, []);
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm('Are you sure you want to delete this user?')) {
+    if (confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) {
       await UserDB.delete(id);
       await NurseProfileDB.delete(id);
       if (admin) {
@@ -532,52 +594,69 @@ function UserManagement() {
   };
 
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">All Users ({users.length})</h3>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <Users className="w-5 h-5 text-blue-600" /> Registered Users
+        </h3>
+        <Badge variant="info">{users.length} Total</Badge>
+      </div>
 
       {users.length === 0 ? (
-        <EmptyState icon={<Users className="w-8 h-8 text-gray-400" />} title="No users" description="No user accounts found (admin and shelter accounts are shown in their respective tabs)." />
+        <EmptyState icon={<Users className="w-8 h-8 text-gray-400" />} title="No users" description="No user accounts found." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Name</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Email</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Role</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Phone</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Joined</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-900">
-                    <div className="flex items-center gap-2">
-                      {u.profile_photo ? (
-                        <img src={u.profile_photo} alt="" className="w-7 h-7 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">{u.name[0]}</div>
-                      )}
-                      {u.name}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {users.map(u => (
+            <Card key={u.id} className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100 flex flex-col h-full rounded-[1.5rem]">
+              {/* Card Header */}
+              <div className="relative h-28 bg-gradient-to-br from-[#3b82f6] to-[#2563eb] flex items-center justify-center p-4">
+                <div className="absolute top-2.5 right-2.5">
+                  <Badge variant={u.role === 'nurse' ? 'success' : 'info'} className="bg-white/90 text-blue-700 border-none">
+                    {u.role.toUpperCase()}
+                  </Badge>
+                </div>
+
+                <div className="relative">
+                  {u.profile_photo && u.profile_photo.length > 10 ? (
+                    <img src={u.profile_photo} alt="" className="w-16 h-16 rounded-full object-cover border-4 border-white shadow-lg" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border-4 border-white/30 flex items-center justify-center text-white text-xl font-bold shadow-lg">
+                      {u.name[0]}
                     </div>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600">{u.email}</td>
-                  <td className="py-3 px-4">
-                    <Badge variant={u.role === 'nurse' ? 'success' : 'info'}>{u.role}</Badge>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600">{u.phone}</td>
-                  <td className="py-3 px-4 text-gray-500">{new Date(u.created_at).toLocaleDateString()}</td>
-                  <td className="py-3 px-4">
-                    <Button size="sm" variant="danger" onClick={() => handleDelete(u.id, u.name)}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  )}
+                </div>
+              </div>
+
+              {/* Card Content */}
+              <div className="p-4 flex-grow text-center flex flex-col items-center">
+                <h4 className="text-base font-bold text-gray-900 mb-0.5">{u.name}</h4>
+                <p className="text-xs text-gray-500 mb-4 truncate w-full">{u.email}</p>
+
+                <div className="w-full space-y-2 text-[11px] text-gray-600 font-medium">
+                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <span className="text-gray-400">Phone:</span>
+                    <span>{u.phone || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <span className="text-gray-400">Joined:</span>
+                    <span>{new Date(u.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="px-4 pb-4 mt-auto">
+                <Button
+                  size="sm"
+                  variant="danger"
+                  className="w-full justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => handleDelete(u.id, u.name)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete User
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
     </div>
@@ -589,60 +668,230 @@ function UserManagement() {
 /* ─────────────────────────────────────────── */
 
 function ShelterManagement() {
+  const { user: admin } = useAuth();
   const [shelters, setShelters] = useState<Shelter[]>([]);
+  const [editingShelter, setEditingShelter] = useState<Shelter | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const reload = () => ShelterDB.getAll().then(setShelters);
 
   useEffect(() => {
-    ShelterDB.getAll().then(setShelters);
+    reload();
   }, []);
 
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete ${name}? This will remove the facility record from the system.`)) {
+      const success = await ShelterDB.delete(id);
+      if (success && admin) {
+        await AdminLogDB.create({
+          adminId: admin.id,
+          adminName: admin.name,
+          action: 'Delete Shelter',
+          target: name,
+          details: `Permanent deletion of shelter facility record`,
+        });
+      }
+      reload();
+    }
+  };
+
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">All Shelters ({shelters.length})</h3>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+          <Building className="w-5 h-5 text-amber-600" /> Authorized Shelters
+        </h3>
+        <div className="flex items-center gap-3">
+          <Badge variant="warning">{shelters.length} Total</Badge>
+          <Button size="sm" onClick={() => setIsCreating(true)}>
+            + Add Shelter
+          </Button>
+        </div>
+      </div>
 
       {shelters.length === 0 ? (
         <EmptyState icon={<Building className="w-8 h-8 text-gray-400" />} title="No shelters" description="No shelters have been registered yet." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Name</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Address</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Email</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Phone</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Capacity</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">GPS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shelters.map(s => (
-                <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-900">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-xs font-bold">
-                        {s.name?.[0] || 'S'}
-                      </div>
-                      {s.name}
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 text-gray-600 max-w-[200px] truncate" title={s.address}>{s.address}</td>
-                  <td className="py-3 px-4 text-gray-600">{s.email || '—'}</td>
-                  <td className="py-3 px-4 text-gray-600">{s.phone || '—'}</td>
-                  <td className="py-3 px-4">
-                    <Badge variant={s.capacity > 0 ? 'info' : 'neutral'}>{s.capacity > 0 ? s.capacity : '—'}</Badge>
-                  </td>
-                  <td className="py-3 px-4 text-gray-500 text-xs">
-                    {s.latitude && s.longitude
-                      ? `${s.latitude.toFixed(4)}, ${s.longitude.toFixed(4)}`
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {shelters.map(s => (
+            <Card key={s.id} className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100 flex flex-col h-full rounded-[1.5rem]">
+              {/* Card Header */}
+              <div className="relative h-28 bg-gradient-to-br from-[#f59e0b] to-[#d97706] flex items-center justify-center p-4">
+                <div className="absolute top-2.5 right-2.5 flex gap-2">
+                  <button 
+                    onClick={() => handleDelete(s.id, s.name)}
+                    className="p-1.5 bg-white/20 hover:bg-red-500 rounded-lg text-white transition-colors backdrop-blur-sm opacity-0 group-hover:opacity-100"
+                    title="Delete Shelter"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  <Badge variant="info" className="bg-white/90 text-amber-700 border-none font-bold">
+                    CAP: {s.capacity}
+                  </Badge>
+                </div>
+
+                <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-md border-4 border-white/30 flex items-center justify-center text-white shadow-lg">
+                  <Building className="w-8 h-8" />
+                </div>
+              </div>
+
+              {/* Card Content */}
+              <div className="p-4 flex-grow flex flex-col">
+                <h4 className="text-base font-bold text-gray-900 mb-1 leading-tight">{s.name}</h4>
+                <p className="text-xs text-gray-500 mb-4 flex items-center gap-1">
+                  <MapPin className="w-3 h-3 shrink-0" /> {s.address}
+                </p>
+
+                <div className="mt-auto space-y-2 pt-3 border-t border-gray-50">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-400">Email:</span>
+                    <span className="text-gray-700 truncate max-w-[120px]">{s.email || 'N/A'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-400">Phone:</span>
+                    <span className="text-gray-700">{s.phone || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="px-4 pb-4">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="w-full justify-center gap-2 group-hover:scale-[1.02] transition-transform"
+                  onClick={() => setEditingShelter(s)}
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Manage Shelter
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
+
+      {(editingShelter || isCreating) && (
+        <Modal 
+          isOpen 
+          onClose={() => { setEditingShelter(null); setIsCreating(false); }} 
+          title={isCreating ? "Add New Shelter Facility" : "Update Shelter Details"}
+        >
+          <ShelterEditForm 
+            shelter={editingShelter} 
+            onSave={() => { setEditingShelter(null); setIsCreating(false); reload(); }} 
+          />
+        </Modal>
+      )}
     </div>
+  );
+}
+
+function ShelterEditForm({ shelter, onSave }: { shelter: Shelter | null, onSave: () => void }) {
+  const { user: admin } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    name: shelter?.name || '',
+    address: shelter?.address || '',
+    email: shelter?.email || '',
+    phone: shelter?.phone || '',
+    capacity: shelter?.capacity || 50,
+    latitude: shelter?.latitude || 0,
+    longitude: shelter?.longitude || 0,
+    shelterUserId: shelter?.shelterUserId || ''
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      if (shelter) {
+        await ShelterDB.update(shelter.id, form);
+        if (admin) {
+          await AdminLogDB.create({
+            adminId: admin.id,
+            adminName: admin.name,
+            action: 'Update Shelter',
+            target: form.name,
+            details: `Updated facility information for ${form.name}`,
+          });
+        }
+      } else {
+        await ShelterDB.create(form);
+        if (admin) {
+          await AdminLogDB.create({
+            adminId: admin.id,
+            adminName: admin.name,
+            action: 'Create Shelter',
+            target: form.name,
+            details: `Created new shelter facility: ${form.name}`,
+          });
+        }
+      }
+      onSave();
+    } catch (err) {
+      console.error('Failed to save shelter:', err);
+      alert('Failed to save changes. Please check your connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+      <Input 
+        label="Shelter Name" 
+        value={form.name} 
+        onChange={e => setForm({...form, name: e.target.value})} 
+        placeholder="e.g. Hope Haven Center"
+        required 
+      />
+      <Input 
+        label="Address" 
+        value={form.address} 
+        onChange={e => setForm({...form, address: e.target.value})} 
+        placeholder="Full street address"
+        required 
+      />
+      <div className="grid grid-cols-2 gap-4">
+        <Input 
+          label="Direct Email" 
+          type="email" 
+          value={form.email} 
+          onChange={e => setForm({...form, email: e.target.value})} 
+          placeholder="Contact email"
+        />
+        <Input 
+          label="Phone Number" 
+          value={form.phone} 
+          onChange={e => setForm({...form, phone: e.target.value})} 
+          placeholder="Main line"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Input 
+          label="Total Capacity" 
+          type="number" 
+          value={form.capacity} 
+          onChange={e => setForm({...form, capacity: parseInt(e.target.value)})} 
+        />
+        <Input 
+          label="Linked User ID (Optional)" 
+          value={form.shelterUserId} 
+          onChange={e => setForm({...form, shelterUserId: e.target.value})} 
+          placeholder="User UUID"
+        />
+      </div>
+      
+      <div className="pt-4 flex gap-3">
+        <Button 
+          type="submit" 
+          className="flex-1 justify-center" 
+          loading={loading}
+        >
+          {shelter ? 'Update Facility' : 'Create facility'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -673,6 +922,61 @@ function BookingManagement() {
     refresh();
   };
 
+  const downloadReceipt = (booking: Booking) => {
+    const doc = new jsPDF();
+    const marginLeft = 20;
+    let yPos = 30;
+
+    doc.setFontSize(22);
+    doc.setTextColor(30, 64, 175);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CARECONNECT', marginLeft, yPos);
+    yPos += 10;
+
+    doc.setFontSize(14);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'normal');
+    doc.text('ADMINISTRATIVE RECEIPT COPY', marginLeft, yPos);
+    yPos += 20;
+
+    doc.setFontSize(12);
+    doc.setTextColor(0, 0, 0);
+
+    const details = [
+      { label: 'Booking ID:', value: booking.id.toUpperCase() },
+      { label: 'Generated By:', value: `Admin: ${admin?.name || 'System'}` },
+      { label: 'Date Generated:', value: new Date().toLocaleDateString() },
+      { label: 'Patient Name:', value: booking.userName },
+      { label: 'Care Provider:', value: booking.nurseName },
+      { label: 'Service Provided:', value: `${booking.serviceType.toUpperCase()} CARE` },
+      { label: 'Payment Method:', value: booking.paymentMethod.toUpperCase() },
+      { label: 'Payment Status:', value: booking.paymentStatus === 'completed' || booking.status === 'completed' ? 'COMPLETED / PAID' : 'PENDING' }
+    ];
+
+    details.forEach(item => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(item.label, marginLeft, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(item.value, marginLeft + 45, yPos);
+      yPos += 10;
+    });
+
+    yPos += 10;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(marginLeft, yPos, 170, 20, 'F');
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`TOTAL AMOUNT:`, marginLeft + 5, yPos + 14);
+    doc.text(`INR ${booking.totalAmount.toLocaleString()}`, marginLeft + 120, yPos + 14);
+    yPos += 40;
+
+    doc.setFontSize(10);
+    doc.setTextColor(150, 150, 150);
+    doc.text('This is an administrative copy generated via the CareConnect Admin Panel.', marginLeft, yPos);
+
+    doc.save(`Admin-Receipt-${booking.id.slice(0, 8)}.pdf`);
+  };
+
   const statusBadge = (status: string) => {
     const map: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
       pending: 'warning', accepted: 'info', rejected: 'danger', completed: 'success', cancelled: 'neutral'
@@ -682,43 +986,71 @@ function BookingManagement() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-900">All Bookings ({bookings.length})</h3>
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold text-gray-900">All Bookings ({bookings.length})</h3>
+        <Button variant="ghost" size="sm" onClick={refresh}>Refresh List</Button>
+      </div>
 
       {bookings.length === 0 ? (
         <EmptyState icon={<Calendar className="w-8 h-8 text-gray-400" />} title="No bookings" description="No bookings have been made yet." />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto bg-white rounded-xl border border-gray-100 shadow-sm">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Patient</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Nurse</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Service</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Dates</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Amount</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500">Actions</th>
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Patient</th>
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Nurse</th>
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Service</th>
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Dates</th>
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Amount</th>
+                <th className="text-left py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Status</th>
+                <th className="text-right py-4 px-4 font-medium text-gray-500 uppercase tracking-wider text-[10px]">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50">
               {bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(b => (
-                <tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
-                  <td className="py-3 px-4 font-medium text-gray-900">{b.userName}</td>
-                  <td className="py-3 px-4 text-gray-600">{b.nurseName}</td>
-                  <td className="py-3 px-4 text-gray-600">{b.serviceType}</td>
-                  <td className="py-3 px-4 text-gray-500 text-xs">{b.startDate} → {b.endDate}</td>
-                  <td className="py-3 px-4 font-medium text-gray-900">₹{b.totalAmount.toLocaleString()}</td>
-                  <td className="py-3 px-4">{statusBadge(b.status)}</td>
-                  <td className="py-3 px-4">
-                    <div className="flex gap-1">
-                      {b.status === 'pending' && (
-                        <Button size="sm" variant="danger" onClick={() => updateBookingStatus(b, 'cancelled')}>
+                <tr key={b.id} className="hover:bg-blue-50/30 transition-colors group">
+                  <td className="py-4 px-4 font-medium text-gray-900">{b.userName}</td>
+                  <td className="py-4 px-4 text-gray-600">{b.nurseName}</td>
+                  <td className="py-4 px-4">
+                    <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-[10px] font-bold">{b.serviceType}</span>
+                  </td>
+                  <td className="py-4 px-4 text-gray-500 text-[11px] font-mono leading-tight">
+                    {b.startDate}<br /><span className="text-gray-300">to</span><br />{b.endDate}
+                  </td>
+                  <td className="py-4 px-4 font-bold text-gray-900 whitespace-nowrap">₹{b.totalAmount.toLocaleString()}</td>
+                  <td className="py-4 px-4">{statusBadge(b.status)}</td>
+                  <td className="py-4 px-4 text-right">
+                    <div className="flex gap-2 justify-end">
+                      {b.status === 'completed' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="hover:bg-blue-100 text-blue-600"
+                          onClick={() => downloadReceipt(b)}
+                          title="Download Receipt"
+                        >
+                          <Download className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {['pending', 'accepted'].includes(b.status) && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          className="px-2 py-1 h-8"
+                          onClick={() => updateBookingStatus(b, 'cancelled')}
+                        >
                           Cancel
                         </Button>
                       )}
-                      {(b.status === 'accepted') && (
-                        <Button size="sm" variant="success" onClick={() => updateBookingStatus(b, 'completed')}>
-                          Complete
+                      {b.status === 'accepted' && (
+                        <Button
+                          size="sm"
+                          variant="success"
+                          className="px-2 py-1 h-8"
+                          onClick={() => updateBookingStatus(b, 'completed')}
+                        >
+                          Finalize
                         </Button>
                       )}
                     </div>
@@ -746,11 +1078,26 @@ function ReportManagement() {
     ShelterDB.getAll().then(setAllShelters);
   }, []);
 
-  const updateStatus = async (report: ShelterReport, status: 'notified' | 'resolved') => {
-    await ShelterReportDB.update(report.id, { status });
+  const updateStatus = async (report: ShelterReport, status: 'notified' | 'resolved', shelterId?: string) => {
+    // If we're forwarding to a shelter, set the assignedShelterId
+    await ShelterReportDB.update(report.id, {
+      status,
+      ...(shelterId ? { assignedShelterId: shelterId } : {})
+    });
 
-    // Auto-dispatch notifications to nearest shelters when marked as 'notified'
-    if (status === 'notified') {
+    // Notify the specific shelter if provided
+    if (status === 'notified' && shelterId) {
+      const fullShelter = allShelters.find(s => s.id === shelterId);
+      if (fullShelter?.shelterUserId) {
+        NotificationDB.create({
+          userId: fullShelter.shelterUserId,
+          title: 'New Help Report Alert',
+          message: `A new humanitarian report requires your attention near ${report.locationDescription || 'your location'}.`,
+          type: 'warning'
+        }).catch(console.error);
+      }
+    } else if (status === 'notified') {
+      // Fallback: Auto-dispatch to top nearest shelters
       const nearShelters = report.nearbyShelters?.length > 0
         ? report.nearbyShelters
         : allShelters.map(s => ({
@@ -783,65 +1130,123 @@ function ReportManagement() {
         <EmptyState icon={<MapPin className="w-8 h-8 text-gray-400" />} title="No reports" description="No humanitarian reports have been submitted yet." />
       ) : (
         reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(report => (
-          <Card key={report.id} className="p-5">
-            <div className="flex items-start gap-4">
-              {report.photo && (
-                <img src={report.photo} alt="Report" className="w-20 h-20 object-cover rounded-lg border" />
-              )}
-              <div className="flex-1">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <p className="font-semibold text-gray-900">{report.locationDescription}</p>
-                    <p className="text-xs text-gray-500">Reported by {report.reporterName} · {new Date(report.createdAt).toLocaleDateString()}</p>
-                  </div>
-                  <Badge variant={report.status === 'resolved' ? 'success' : report.status === 'notified' ? 'info' : 'warning'}>
-                    {report.status}
-                  </Badge>
-                </div>
-
-                <p className="text-sm text-gray-600 mb-2">{report.description}</p>
-                <p className="text-xs text-gray-400">📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}</p>
-
-                {(() => {
-                  const near = report.nearbyShelters?.length > 0
-                    ? report.nearbyShelters
-                    : allShelters.map(s => ({
-                      ...s,
-                      distanceKm: haversineDistance(report.latitude, report.longitude, s.latitude, s.longitude)
-                    })).sort((a, b) => (a.distanceKm || 999) - (b.distanceKm || 999)).slice(0, 3);
-
-                  if (near.length === 0) return null;
-
-                  return (
-                    <div className="mt-2 space-y-1">
-                      <p className="text-xs font-medium text-gray-500">Nearest Shelters based on GPS:</p>
-                      {near.map(s => (
-                        <p key={s.id} className="text-xs text-gray-600">
-                          🏠 {s.name} — {s.distanceKm?.toFixed(1)} km · 📞 {s.phone || 'N/A'}
-                        </p>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                <div className="flex gap-2 mt-3">
-                  {report.status === 'reported' && (
-                    <Button size="sm" variant="primary" onClick={() => updateStatus(report, 'notified')}>
-                      Mark Shelters Notified
-                    </Button>
-                  )}
-                  {report.status === 'notified' && (
-                    <Button size="sm" variant="success" onClick={() => updateStatus(report, 'resolved')}>
-                      Mark Resolved
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Card>
+          <AdminReportCard
+            key={report.id}
+            report={report}
+            allShelters={allShelters}
+            onUpdate={(status, shelterId) => updateStatus(report, status, shelterId)}
+          />
         ))
       )}
     </div>
+  );
+}
+
+function AdminReportCard({
+  report,
+  allShelters,
+  onUpdate
+}: {
+  report: ShelterReport;
+  allShelters: Shelter[];
+  onUpdate: (status: 'notified' | 'resolved', shelterId?: string) => void
+}) {
+  const nearShelters = report.nearbyShelters?.length > 0
+    ? report.nearbyShelters
+    : allShelters.map(s => ({
+      ...s,
+      distanceKm: haversineDistance(report.latitude, report.longitude, s.latitude, s.longitude)
+    })).sort((a, b) => (a.distanceKm || 999) - (b.distanceKm || 999)).slice(0, 5);
+
+  const [selectedShelter, setSelectedShelter] = useState<string>(
+    report.assignedShelterId || (nearShelters.length > 0 ? nearShelters[0].id : '')
+  );
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col sm:flex-row items-start gap-4">
+        {report.photo && (
+          <>
+            <img
+              src={report.photo}
+              alt="Report"
+              loading="lazy"
+              className="w-full sm:w-32 h-32 object-cover rounded-lg border shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => setImageViewerOpen(true)}
+            />
+            <ImageViewerModal
+              isOpen={imageViewerOpen}
+              onClose={() => setImageViewerOpen(false)}
+              src={report.photo}
+              alt="Humanitarian Report Photo"
+            />
+          </>
+        )}
+        <div className="flex-1 w-full">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-2 gap-2">
+            <div>
+              <p className="font-semibold text-gray-900">{report.locationDescription}</p>
+              <p className="text-xs text-gray-500">Reported by {report.reporterName} · {new Date(report.createdAt).toLocaleDateString()}</p>
+            </div>
+            <Badge variant={report.status === 'resolved' ? 'success' : report.status === 'notified' ? 'info' : 'warning'}>
+              {report.status}
+            </Badge>
+          </div>
+
+          <p className="text-sm text-gray-600 mb-2">{report.description}</p>
+          <p className="text-xs text-gray-400">📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}</p>
+
+          {/* Shelter Selection Dropdown */}
+          {report.status === 'reported' && nearShelters.length > 0 && (
+            <div className="mt-4 p-3 bg-blue-50/50 rounded-xl border border-blue-100">
+              <label className="text-xs font-semibold text-blue-800 mb-2 block">Choose Shelter to Forward To:</label>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <Select
+                    options={nearShelters.map(s => ({
+                      value: s.id,
+                      label: `${s.name} (${s.distanceKm?.toFixed(1)} km away)`
+                    }))}
+                    value={selectedShelter}
+                    onChange={(e) => setSelectedShelter(e.target.value)}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => onUpdate('notified', selectedShelter)}
+                  disabled={!selectedShelter}
+                  className="shrink-0 h-11"
+                >
+                  Forward to Shelter
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {report.status !== 'reported' && report.assignedShelterId && (
+            <div className="mt-3 text-sm text-emerald-700 font-medium bg-emerald-50 p-2 rounded-lg inline-block">
+              Assigned to: {allShelters.find(s => s.id === report.assignedShelterId)?.name || 'Unknown Shelter'}
+            </div>
+          )}
+
+          {report.status === 'notified' && (
+            <div className="mt-4">
+              <Button size="sm" variant="success" onClick={() => onUpdate('resolved')}>
+                <CheckCircle className="w-4 h-4 mr-1" /> Mark Resolved
+              </Button>
+            </div>
+          )}
+
+          {report.status === 'reported' && nearShelters.length === 0 && (
+            <div className="mt-3 text-sm text-amber-600 bg-amber-50 p-2 rounded-lg inline-block">
+              No shelters available to forward to.
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -850,7 +1255,7 @@ function ReportManagement() {
 /* ─────────────────────────────────────────── */
 
 function AdminMyAccount() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const [form, setForm] = useState({ name: '', phone: '', location: '' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -862,22 +1267,25 @@ function AdminMyAccount() {
     }
   }, [user]);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage('Photo must be under 2MB');
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setMessage(validationError);
+      setTimeout(() => setMessage(''), 4000);
       return;
     }
     setPhotoUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await updateUser({ profile_photo: reader.result as string });
-      setPhotoUploading(false);
+    const result = await uploadImage('profile', file, user?.id);
+    if (result.success && result.url) {
+      await updateUser({ profile_photo: result.url });
       setMessage('Profile photo updated!');
-      setTimeout(() => setMessage(''), 3000);
-    };
-    reader.readAsDataURL(file);
+    } else {
+      setMessage(result.error || 'Upload failed.');
+    }
+    setPhotoUploading(false);
+    setTimeout(() => setMessage(''), 3000);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -897,8 +1305,9 @@ function AdminMyAccount() {
       <Card className="p-6">
         <div className="flex items-center gap-6">
           <div className="relative group">
-            {user.profile_photo ? (
+            {user.profile_photo && user.profile_photo.length > 10 ? (
               <img src={user.profile_photo} alt={user.name}
+                loading="lazy"
                 className="w-24 h-24 rounded-2xl object-cover border-2 border-gray-100 shadow-sm" />
             ) : (
               <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-sm">
@@ -963,6 +1372,19 @@ function AdminMyAccount() {
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </form>
+      </Card>
+
+      {/* Danger Zone */}
+      <Card className="p-6 border-red-100 bg-red-50/30">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-red-700">Log Out</h3>
+            <p className="text-sm text-red-600/80 mt-1">Securely sign out of your account on this device.</p>
+          </div>
+          <Button variant="danger" onClick={() => logout()} className="shrink-0">
+            <span className="flex items-center gap-2"><LogOut className="w-4 h-4" /> Sign Out</span>
+          </Button>
+        </div>
       </Card>
     </div>
   );

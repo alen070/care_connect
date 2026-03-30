@@ -5,6 +5,7 @@ import { Card, Badge, Spinner } from '@/components/ui';
 import { CheckCircle, Clock, XCircle, Calendar, IndianRupee, Activity, Users } from 'lucide-react';
 import type { NurseProfile, Booking } from '@/types';
 import { cn } from '@/utils/cn';
+import { calculateBookingAmount } from '@/utils/booking';
 
 export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void }) {
     const { user } = useAuth();
@@ -18,8 +19,25 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
         Promise.all([
             NurseProfileDB.getByUserId(user.id),
             BookingDB.getByNurseId(user.id)
-        ]).then(([profileData, bookingsData]) => {
-            setProfile(profileData);
+        ]).then(async ([initialProfile, bookingsData]) => {
+            let profileData = initialProfile;
+            
+            // Auto-repair if nurse profile is missing
+            if (!profileData) {
+                console.log('[NurseHome] Profile missing, creating default profile.');
+                try {
+                    const newProfile = await NurseProfileDB.create({
+                        userId: user.id, specializations: [], experience: 0,
+                        baseRate: 0, rateType: 'hourly', bio: '', location: user.location || '',
+                        serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+                    });
+                    profileData = newProfile as any;
+                } catch (e) {
+                    console.error('[NurseHome] Auto-repair failed:', e);
+                }
+            }
+            
+            setProfile(profileData || undefined);
             setBookings(bookingsData);
             setLoading(false);
         });
@@ -45,7 +63,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
 
     const thisMonthEarnings = completedBookings
         .filter(b => b.endDate.startsWith(thisMonthStr) || b.createdAt.startsWith(thisMonthStr))
-        .reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+        .reduce((sum, b) => sum + calculateBookingAmount(b, profile?.baseRate || 0, profile?.rateType), 0);
 
     const todaysVisits = activeBookings.filter(b => {
         return b.startDate <= todayStr && b.endDate >= todayStr;
@@ -125,12 +143,12 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
                     <h3 className="text-2xl font-bold text-gray-900">{activeBookings.length}</h3>
                 </Card>
 
-                <Card className="p-5 flex flex-col gap-2 cursor-pointer hover:border-indigo-300 transition-colors" onClick={() => onNavigate('schedule')}>
+                <Card className="p-5 flex flex-col gap-2 cursor-pointer hover:border-indigo-300 transition-colors" onClick={() => onNavigate('bookings')}>
                     <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center mb-2">
                         <Calendar className="w-5 h-5 text-indigo-600" />
                     </div>
-                    <p className="text-sm text-gray-500 font-medium">Visits Today</p>
-                    <h3 className="text-2xl font-bold text-gray-900">{todaysVisits.length}</h3>
+                    <p className="text-sm text-gray-500 font-medium">Total Bookings</p>
+                    <h3 className="text-2xl font-bold text-gray-900">{bookings.length}</h3>
                 </Card>
 
                 <Card className="p-5 flex flex-col gap-2 cursor-pointer hover:border-amber-300 transition-colors" onClick={() => onNavigate('earnings')}>

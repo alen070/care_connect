@@ -9,11 +9,11 @@
  * All functions are ASYNC and return Promises.
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../lib/supabase';
 import type {
   User, NurseProfile, NurseDocument, Booking,
   ShelterReport, Shelter, Notification, AdminLog
-} from '@/types';
+} from '../types';
 
 /* ─── Helper: map snake_case DB rows to camelCase types ─── */
 
@@ -37,13 +37,15 @@ function mapNurseProfile(row: Record<string, unknown>): NurseProfile {
     userId: row.user_id as string,
     specializations: (row.specializations as string[]) || [],
     experience: (row.experience as number) || 0,
-    baseRate: (row.base_rate as number) || 0,
+    // Use base_rate if available, otherwise fallback to hourly_rate (legacy)
+    baseRate: (row.base_rate as number) || (row.hourly_rate as number) || 0,
+    // Default to 'hourly' if rate_type is missing
     rateType: (row.rate_type as 'hourly' | 'daily' | 'weekly' | 'monthly') || 'hourly',
     bio: (row.bio as string) || '',
     location: (row.location as string) || '',
     serviceAreas: (row.service_areas as string[]) || [],
-    availability: row.availability as boolean,
-    verificationStatus: row.verification_status as NurseProfile['verificationStatus'],
+    availability: row.availability === true,
+    verificationStatus: (row.verification_status as NurseProfile['verificationStatus']) || 'pending',
     rating: (row.rating as number) || 0,
     totalReviews: (row.total_reviews as number) || 0,
     documents: [],
@@ -145,17 +147,24 @@ export const UserDB = {
     return mapProfile(data);
   },
 
+  create: async (profile: Partial<User> & { id: string, email: string, name: string, role: string }): Promise<User | undefined> => {
+    const { data, error } = await supabase.from('profiles').insert([profile]).select().single();
+    if (error || !data) { console.error('UserDB.create:', error); return undefined; }
+    return mapProfile(data);
+  },
+
   update: async (id: string, updates: Partial<User>): Promise<User | undefined> => {
-    const mapped: Record<string, unknown> = {};
+    const mapped: Record<string, unknown> = { id };
     if (updates.name !== undefined) mapped.name = updates.name;
     if (updates.phone !== undefined) mapped.phone = updates.phone;
     if (updates.role !== undefined) mapped.role = updates.role;
     if (updates.location !== undefined) mapped.location = updates.location;
     if (updates.google_id !== undefined) mapped.google_id = updates.google_id;
     if (updates.profile_photo !== undefined) mapped.profile_photo = updates.profile_photo;
+    if (updates.email !== undefined) mapped.email = updates.email;
 
     const { data, error } = await supabase
-      .from('profiles').update(mapped).eq('id', id).select().single();
+      .from('profiles').upsert(mapped).select().single();
     if (error || !data) { console.error('UserDB.update:', error); return undefined; }
     return mapProfile(data);
   },
@@ -169,13 +178,13 @@ export const UserDB = {
 /* ─── NURSE PROFILE operations ─── */
 
 export const NurseProfileDB = {
-  // Optimized fetch for Admin Dashboard to skip heavy base64 profile photos
+  // Now that images are stored as URLs (not base64), the overview can safely select all columns.
   getAllOverview: async (): Promise<NurseProfile[]> => {
     const { data, error } = await supabase
       .from('nurse_profiles')
-      .select('id, user_id, specializations, experience, base_rate, rate_type, bio, location, service_areas, availability, verification_status, rating, total_reviews');
+      .select('*');
     if (error) return [];
-    return (data || []).map(row => mapNurseProfile({ ...row, profile_photo: '' }));
+    return (data || []).map(mapNurseProfile);
   },
 
   getAll: async (): Promise<NurseProfile[]> => {
@@ -198,24 +207,37 @@ export const NurseProfileDB = {
     return (data || []).map(mapNurseProfile);
   },
 
-  create: async (profile: NurseProfile): Promise<NurseProfile> => {
-    const row = {
+  create: async (profile: Omit<NurseProfile, 'id' | 'createdAt' | 'rating' | 'totalReviews'>): Promise<NurseProfile | null> => {
+    const payload = {
       user_id: profile.userId,
       specializations: profile.specializations,
       experience: profile.experience,
       base_rate: profile.baseRate,
+      hourly_rate: profile.baseRate, // Legacy compatibility
       rate_type: profile.rateType,
       bio: profile.bio,
       location: profile.location,
       service_areas: profile.serviceAreas,
       availability: profile.availability,
-      verification_status: profile.verificationStatus,
-      rating: profile.rating,
-      total_reviews: profile.totalReviews,
-      profile_photo: profile.profilePhoto,
+      verification_status: profile.verificationStatus || 'pending',
     };
-    const { data, error } = await supabase.from('nurse_profiles').insert(row).select().single();
-    if (error || !data) { console.error('NurseProfileDB.create:', error); return profile; }
+
+    const { data, error } = await supabase.from('nurse_profiles').insert(payload).select().single();
+
+    if (error) {
+      console.error('Error creating nurse profile:', error);
+      // Fallback for missing columns
+      if (error.message?.includes('column') || error.message?.includes('schema cache')) {
+        console.warn('Retrying insert without new columns...');
+        const legacyPayload = { ...payload } as any;
+        delete legacyPayload.base_rate;
+        delete legacyPayload.rate_type;
+        const { data: lData, error: lErr } = await supabase.from('nurse_profiles').insert(legacyPayload).select().single();
+        if (lErr) return null;
+        return mapNurseProfile(lData!);
+      }
+      return null;
+    }
     return mapNurseProfile(data);
   },
 
@@ -223,7 +245,10 @@ export const NurseProfileDB = {
     const mapped: Record<string, unknown> = {};
     if (updates.specializations !== undefined) mapped.specializations = updates.specializations;
     if (updates.experience !== undefined) mapped.experience = updates.experience;
-    if (updates.baseRate !== undefined) mapped.base_rate = updates.baseRate;
+    if (updates.baseRate !== undefined) {
+      mapped.base_rate = updates.baseRate;
+      mapped.hourly_rate = updates.baseRate; // Sync old column
+    }
     if (updates.rateType !== undefined) mapped.rate_type = updates.rateType;
     if (updates.bio !== undefined) mapped.bio = updates.bio;
     if (updates.location !== undefined) mapped.location = updates.location;
@@ -234,9 +259,28 @@ export const NurseProfileDB = {
     if (updates.totalReviews !== undefined) mapped.total_reviews = updates.totalReviews;
     if (updates.profilePhoto !== undefined) mapped.profile_photo = updates.profilePhoto;
 
+    // Sync location to the main user profile if it changed
+    if (updates.location !== undefined) {
+      await UserDB.update(userId, { location: updates.location });
+    }
+
     const { data, error } = await supabase
       .from('nurse_profiles').update(mapped).eq('user_id', userId).select().single();
-    if (error || !data) { console.error('NurseProfileDB.update:', error); return undefined; }
+    if (error) {
+      console.error('NurseProfileDB.update failed:', error);
+      // Fallback if columns are missing in DB
+      if (error.message?.includes('column') || error.message?.includes('schema cache')) {
+        console.warn('Database schema out of sync. Retrying with legacy columns.');
+        const legacy = { ...mapped };
+        delete legacy.base_rate;
+        delete legacy.rate_type;
+        const { data: lData, error: lErr } = await supabase.from('nurse_profiles').update(legacy).eq('user_id', userId).select().single();
+        if (lErr) throw lErr;
+        return mapNurseProfile(lData!);
+      }
+      throw error;
+    }
+    if (!data) throw new Error('Failed to update: No data returned');
     return mapNurseProfile(data);
   },
 
@@ -246,18 +290,20 @@ export const NurseProfileDB = {
   },
 
   search: async (location?: string, service?: string): Promise<NurseProfile[]> => {
-    let query = supabase.from('nurse_profiles').select('*').eq('verification_status', 'approved');
+    // Fetch specifically approved nurses for the user-facing search
+    const [{ data, error }, { data: activeBookings }] = await Promise.all([
+      supabase.from('nurse_profiles').select('*').eq('verification_status', 'approved'),
+      supabase.from('bookings').select('nurse_id').eq('status', 'accepted')
+    ]);
 
-    if (location) {
-      query = query.ilike('location', `%${location}%`);
+    if (error) {
+      console.error('Nurse search error:', error);
+      return [];
     }
 
-    const { data, error } = await query;
-    if (error) return [];
+    const busyNurseIds = new Set(activeBookings?.map(b => b.nurse_id) || []);
+    let results = (data || []).map(mapNurseProfile).filter(p => !busyNurseIds.has(p.userId));
 
-    let results = (data || []).map(mapNurseProfile);
-
-    // Filter by service areas (client-side for array overlap with location)
     if (location) {
       const loc = location.toLowerCase();
       results = results.filter(p =>
@@ -355,6 +401,12 @@ export const BookingDB = {
     return (data || []).map(mapBooking);
   },
 
+  getRecent: async (limit: number = 5): Promise<Booking[]> => {
+    const { data, error } = await supabase.from('bookings').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (error) return [];
+    return (data || []).map(mapBooking);
+  },
+
   getById: async (id: string): Promise<Booking | undefined> => {
     const { data, error } = await supabase.from('bookings').select('*').eq('id', id).single();
     if (error || !data) return undefined;
@@ -374,6 +426,17 @@ export const BookingDB = {
   },
 
   create: async (booking: Omit<Booking, 'id' | 'createdAt'>): Promise<Booking> => {
+    let nursePhone = booking.nursePhone;
+    let userPhone = booking.userPhone;
+
+    if (!nursePhone || !userPhone) {
+      const { data: profiles } = await supabase.from('profiles').select('id, phone').in('id', [booking.userId, booking.nurseId]);
+      if (profiles) {
+        if (!nursePhone) nursePhone = profiles.find(p => p.id === booking.nurseId)?.phone;
+        if (!userPhone) userPhone = profiles.find(p => p.id === booking.userId)?.phone;
+      }
+    }
+
     const row = {
       user_id: booking.userId,
       nurse_id: booking.nurseId,
@@ -386,8 +449,8 @@ export const BookingDB = {
       payment_method: booking.paymentMethod,
       total_amount: booking.totalAmount,
       notes: booking.notes,
-      nurse_phone: booking.nursePhone,
-      user_phone: booking.userPhone,
+      nurse_phone: nursePhone,
+      user_phone: userPhone,
     };
     const { data, error } = await supabase.from('bookings').insert(row).select().single();
     if (error || !data) {
@@ -415,17 +478,25 @@ export const BookingDB = {
 /* ─── SHELTER REPORT operations ─── */
 
 export const ShelterReportDB = {
-  // Optimized fetch for Admin Dashboard to skip heavy base64 photos
+  // Now that photos are stored as URLs (not base64), the overview can safely select all columns.
   getAllOverview: async (): Promise<ShelterReport[]> => {
     const { data, error } = await supabase
       .from('shelter_reports')
-      .select('id, reported_by, reporter_name, latitude, longitude, location_description, description, created_at, status, assigned_shelter_id, accepted_at');
+      .select('*');
     if (error) return [];
-    return (data || []).map(row => mapShelterReport({ ...row, photo: '' }));
+    return (data || []).map(mapShelterReport);
   },
 
   getAll: async (): Promise<ShelterReport[]> => {
     const { data, error } = await supabase.from('shelter_reports').select('*');
+    if (error) return [];
+    return (data || []).map(mapShelterReport);
+  },
+
+  getByReporterId: async (userId: string): Promise<ShelterReport[]> => {
+    const { data, error } = await supabase
+      .from('shelter_reports').select('*').eq('reported_by', userId)
+      .order('created_at', { ascending: false });
     if (error) return [];
     return (data || []).map(mapShelterReport);
   },
@@ -527,6 +598,13 @@ export const ShelterDB = {
     return mapShelter(data);
   },
 
+  getByEmail: async (email: string): Promise<Shelter | undefined> => {
+    const { data, error } = await supabase
+      .from('shelters').select('*').ilike('email', email).single();
+    if (error || !data) return undefined;
+    return mapShelter(data);
+  },
+
   create: async (shelter: Omit<Shelter, 'id'>): Promise<Shelter | undefined> => {
     const row = {
       name: shelter.name,
@@ -541,6 +619,29 @@ export const ShelterDB = {
     const { data, error } = await supabase.from('shelters').insert(row).select().single();
     if (error || !data) { console.error('ShelterDB.create:', error); return undefined; }
     return mapShelter(data);
+  },
+
+  update: async (id: string, updates: Partial<Shelter>): Promise<Shelter | undefined> => {
+    const row: Record<string, any> = {};
+    if (updates.name !== undefined) row.name = updates.name;
+    if (updates.address !== undefined) row.address = updates.address;
+    if (updates.latitude !== undefined) row.latitude = updates.latitude;
+    if (updates.longitude !== undefined) row.longitude = updates.longitude;
+    if (updates.phone !== undefined) row.phone = updates.phone;
+    if (updates.email !== undefined) row.email = updates.email;
+    if (updates.capacity !== undefined) row.capacity = updates.capacity;
+    if (updates.shelterUserId !== undefined) row.shelter_user_id = updates.shelterUserId;
+
+    const { data, error } = await supabase
+      .from('shelters').update(row).eq('id', id).select().single();
+    if (error || !data) { console.error('ShelterDB.update:', error); return undefined; }
+    return mapShelter(data);
+  },
+
+  delete: async (id: string): Promise<boolean> => {
+    const { error } = await supabase.from('shelters').delete().eq('id', id);
+    if (error) { console.error('ShelterDB.delete:', error); return false; }
+    return true;
   },
 };
 
@@ -603,7 +704,8 @@ export const NotificationDB = {
       .from('notifications')
       .select('*')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(20);
 
     if (error) {
       console.error('Error fetching notifications:', error);
@@ -635,10 +737,68 @@ export const NotificationDB = {
   }
 };
 
-/**
- * initializeDatabase is a no-op now.
- * Seed data is handled by the SQL migration.
- */
 export function initializeDatabase(): void {
   // No-op — Supabase handles data persistence
 }
+
+export const StatsDB = {
+  getOverview: async () => {
+    const getCount = async (table: string, match?: Record<string, any>, filter?: (q: any) => any) => {
+      let query = supabase.from(table).select('*', { count: 'exact', head: true });
+      if (match) {
+        query = query.match(match);
+      }
+      if (filter) {
+        query = filter(query);
+      }
+      const { count } = await query;
+      return count || 0;
+    };
+
+    const [
+      totalUsers,
+      totalNurses,
+      pendingVerification,
+      approvedNurses,
+      totalBookings,
+      activeBookings,
+      totalShelters,
+      totalReports,
+      resolvedReports,
+      documentsUploaded,
+      genuineDocuments,
+      suspectedForgery,
+    ] = await Promise.all([
+      getCount('profiles', { role: 'user' }),
+      getCount('nurse_profiles'),
+      getCount('nurse_profiles', { verification_status: 'pending' }),
+      getCount('nurse_profiles', { verification_status: 'approved' }),
+      getCount('bookings'),
+      getCount('bookings', { status: 'accepted' }),
+      getCount('shelters'),
+      getCount('shelter_reports'),
+      getCount('shelter_reports', { status: 'resolved' }),
+      getCount('nurse_documents'),
+      // For JSON fields, we use customized query filtering via the filter callback
+      // We are finding documents where ai_analysis->result is genuine or suspected_forgery
+      getCount('nurse_documents', undefined, q => q.contains('ai_analysis', { result: 'genuine' })),
+      getCount('nurse_documents', undefined, q => q.contains('ai_analysis', { result: 'suspected_forgery' })),
+    ]);
+
+    return {
+      totalUsers,
+      totalNurses,
+      pendingVerification,
+      approvedNurses,
+      totalBookings,
+      activeBookings,
+      totalShelters,
+      totalReports,
+      activeReports: totalReports - resolvedReports,
+      documentsUploaded,
+      genuineDocuments,
+      suspectedForgery,
+    };
+  }
+};
+

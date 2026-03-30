@@ -17,13 +17,21 @@ BEGIN
       coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
       coalesce(new.raw_user_meta_data->>'location', ''),
       -- Safely cast lat/lng from JSON to float, default to 0 if missing
-      coalesce((new.raw_user_meta_data->>'lat')::numeric, 0),
-      coalesce((new.raw_user_meta_data->>'lng')::numeric, 0),
+      coalesce((new.raw_user_meta_data->>'shelterLat')::numeric, 0),
+      coalesce((new.raw_user_meta_data->>'shelterLng')::numeric, 0),
       coalesce(new.raw_user_meta_data->>'phone', ''),
       new.email,
-      coalesce((new.raw_user_meta_data->>'capacity')::integer, 50),
+      coalesce((new.raw_user_meta_data->>'shelterCapacity')::integer, 50),
       new.id
-    );
+    )
+    ON CONFLICT (shelter_user_id) DO UPDATE SET
+      name = EXCLUDED.name,
+      address = EXCLUDED.address,
+      latitude = EXCLUDED.latitude,
+      longitude = EXCLUDED.longitude,
+      phone = EXCLUDED.phone,
+      email = EXCLUDED.email,
+      capacity = EXCLUDED.capacity;
   END IF;
   RETURN new;
 END;
