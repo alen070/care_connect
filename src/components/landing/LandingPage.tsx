@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import logo from '@/assets/logo.png';
+import heroHomecareLandscape from '@/assets/hero_homecare_landscape.png';
+import familyNurseCare from '@/assets/family_nurse_care.png';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -170,7 +172,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
         {/* ── Landscape Hero Image Blended Background ── */}
         <div className="absolute top-0 right-0 bottom-0 w-full lg:w-[65%] hidden lg:block z-0 pointer-events-none" style={{ WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 25%)', maskImage: 'linear-gradient(to right, transparent 0%, black 25%)' }}>
           <img
-            src="/src/assets/hero_homecare_landscape.png"
+            src={heroHomecareLandscape}
             alt="Compassionate homecare"
             className="w-full h-full object-cover object-[75%_center]"
           />
@@ -487,7 +489,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
             <div className="order-2 lg:order-1 relative">
               <div className="aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl relative z-10 border border-gray-100">
-                <img src="/src/assets/family_nurse_care.png" alt="Caring nurse with family" className="w-full h-full object-cover" />
+                <img src={familyNurseCare} alt="Caring nurse with family" className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 <div className="absolute bottom-6 left-6 right-6 text-white text-left">
                   <p className="font-bold text-xl drop-shadow-md">Peace of Mind</p>
