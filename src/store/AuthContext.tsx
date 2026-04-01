@@ -249,6 +249,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     console.log('[AuthContext] Registration Metadata:', metadata);
 
+    // Check if email is already registered
+    const existingProfile = await UserDB.getByEmail(data.email.trim());
+    if (existingProfile) {
+      return { success: false, error: 'This email is already registered. Please sign in instead.' };
+    }
+
     const signUpPromise = supabase.auth.signUp({
       email: data.email.trim(),
       password: data.password,
