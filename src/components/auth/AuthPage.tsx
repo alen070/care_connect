@@ -129,7 +129,7 @@ function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; 
 }
 
 function LoginForm({ onSwitch }: { onSwitch: () => void }) {
-  const { login, loginWithPhone, loginWithGoogle, resetPassword } = useAuth();
+  const { login, loginWithPhone, loginWithGoogle, resetPassword, resendVerificationEmail } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [loginType, setLoginType] = useState<'email' | 'phone' | 'google'>('email');
   const [email, setEmail] = useState('');
@@ -142,6 +142,8 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
   const [message, setMessage] = useState('');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
+  const [showResendVerif, setShowResendVerif] = useState(false);
+  const [resendEmail, setResendEmail] = useState('');
 
   useEffect(() => {
     // Load saved credentials from registration or "remember me"
@@ -169,7 +171,15 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
         console.log('[AuthPage] Calling login() in AuthContext...');
         const result = await login(email, password);
         console.log('[AuthPage] login() result:', result);
-        if (!result.success) setError(result.error || 'Login failed');
+        if (!result.success) {
+          if (result.error?.toLowerCase().includes('email not confirmed')) {
+            setError('Please verify your email before signing in.');
+            setShowResendVerif(true);
+            setResendEmail(email);
+          } else {
+            setError(result.error || 'Login failed');
+          }
+        }
       } else if (loginType === 'phone') {
         if (!showOtp) {
           const phoneError = validatePhone(phone);
@@ -321,6 +331,36 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
           </Button>
         )}
       </form>
+
+      {showResendVerif && (
+        <div className="mt-4 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+          <p className="text-sm text-amber-800 font-medium mb-2">Haven&apos;t received the code?</p>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="w-full border-amber-200 text-amber-700 hover:bg-amber-100"
+            disabled={submitting}
+            onClick={async () => {
+              setSubmitting(true);
+              setError('');
+              setMessage('');
+              try {
+                const result = await resendVerificationEmail(resendEmail);
+                if (result.success) {
+                  setMessage('Verification email resent! Please check your inbox.');
+                  setShowResendVerif(false);
+                } else {
+                  setError(result.error || 'Failed to resend verification email');
+                }
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+          >
+            {submitting ? 'Resending...' : 'Resend Verification Email'}
+          </Button>
+        </div>
+      )}
 
       {/* Mobile demo credentials */}
       <div className="lg:hidden mt-4 bg-gray-50 rounded-xl p-3">

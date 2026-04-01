@@ -183,6 +183,7 @@ export interface AuthContextType {
   loginWithGoogle: (intendedRole?: string) => Promise<{ success: boolean; error?: string }>;
   register: (data: any) => Promise<RegistrationResult>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  resendVerificationEmail: (email: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User> & any) => Promise<any>;
 }

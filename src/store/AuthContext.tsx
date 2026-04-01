@@ -258,7 +258,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const signUpPromise = supabase.auth.signUp({
       email: data.email.trim(),
       password: data.password,
-      options: { data: metadata },
+      options: { 
+        data: metadata,
+        emailRedirectTo: window.location.origin
+      },
     });
 
     const timeoutPromise = new Promise((_, reject) => 
@@ -306,6 +309,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    return error ? { success: false, error: error.message } : { success: true };
+  }, []);
+
+  const resendVerificationEmail = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
     return error ? { success: false, error: error.message } : { success: true };
   }, []);
 
@@ -396,7 +410,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, loading, isAuthenticated: !!user,
-      login, loginWithPhone, loginWithGoogle, register, resetPassword, logout, updateUser
+      login, loginWithPhone, loginWithGoogle, register, resetPassword, resendVerificationEmail, logout, updateUser
     }}>
       {children}
     </AuthContext.Provider>
