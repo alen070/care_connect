@@ -730,14 +730,10 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
                     required
                     options={[
                       { value: '', label: 'Select specialization...' },
-                      { value: 'General', label: 'General Nursing' },
-                      { value: 'ICU', label: 'ICU (Intensive Care)' },
-                      { value: 'Pediatrics', label: 'Pediatrics (Children)' },
-                      { value: 'Geriatrics', label: 'Geriatrics (Elderly Care)' },
-                      { value: 'Palliative', label: 'Palliative/Hospice' },
-                      { value: 'Post-Operative', label: 'Post-Operative Care' },
-                      { value: 'Orthopedics', label: 'Orthopedics' },
-                      { value: 'Maternity', label: 'Maternity/Neonatal' }
+                      { value: 'Elderly', label: 'Elderly Care' },
+                      { value: 'Post-Surgery', label: 'Post-Surgery Care' },
+                      { value: 'Newborn', label: 'Newborn Care' },
+                      { value: 'Palliative', label: 'Palliative Care' }
                     ]}
                   />
                   <Input
