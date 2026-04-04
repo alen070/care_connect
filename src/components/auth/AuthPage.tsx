@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../store/AuthContext';
-import { Button, Input, Card } from '../ui';
+import { Button, Input, Card, Select } from '../ui';
 import { Shield, UserPlus, LogIn, Stethoscope, Users, ShieldCheck, Phone, Mail, ArrowLeft, Building, MapPin, Loader2, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { UserRole } from '../../types';
 import { cn } from '../../utils/cn';
@@ -159,11 +159,11 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
     setMessage('');
     setSubmitting(true);
     
-    // Safety un-stuck: reset if it takes more than 10s
+    // Safety un-stuck: reset if it takes more than 30s
     const stuckTimeout = setTimeout(() => {
       setSubmitting(false);
-      setError('Login is taking longer than expected. Please check your connection or try again.');
-    }, 10000);
+      setError('Process is taking longer than expected. Please check your connection or try again.');
+    }, 30000);
 
     try {
       if (loginType === 'email') {
@@ -723,12 +723,22 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
 
               {form.role === 'nurse' && (
                 <>
-                  <Input
+                  <Select
                     label="Primary Specialization"
-                    placeholder="General, ICU, etc."
                     value={form.specialization}
                     onChange={e => update('specialization', e.target.value)}
                     required
+                    options={[
+                      { value: '', label: 'Select specialization...' },
+                      { value: 'General', label: 'General Nursing' },
+                      { value: 'ICU', label: 'ICU (Intensive Care)' },
+                      { value: 'Pediatrics', label: 'Pediatrics (Children)' },
+                      { value: 'Geriatrics', label: 'Geriatrics (Elderly Care)' },
+                      { value: 'Palliative', label: 'Palliative/Hospice' },
+                      { value: 'Post-Operative', label: 'Post-Operative Care' },
+                      { value: 'Orthopedics', label: 'Orthopedics' },
+                      { value: 'Maternity', label: 'Maternity/Neonatal' }
+                    ]}
                   />
                   <Input
                     label="Years of Experience"
