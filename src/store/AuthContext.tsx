@@ -72,7 +72,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
              setUser(profile);
           }
           
-          setLoading(false); // Signal that we have AT LEAST a stub
+          // Keep loading=true if we are about to perform a role upgrade
+          if (!intendedRole) {
+            setLoading(false);
+          }
 
           // Polling for trigger-created profile (Background - deep sync)
           if (!profile) {
@@ -116,6 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.error('[AuthContext] Role upgrade failed:', e);
             }
           }
+          
+          // Now it's safe to show the dashboard
+          setLoading(false);
 
           // Resource Record Repair (Shelter/Nurse)
           const finalProfile = (profile || {
