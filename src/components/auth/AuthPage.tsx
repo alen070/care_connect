@@ -158,7 +158,12 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
     setError('');
     setMessage('');
     setSubmitting(true);
-    console.log('[AuthPage] handleSubmit started, loginType:', loginType);
+    
+    // Safety un-stuck: reset if it takes more than 10s
+    const stuckTimeout = setTimeout(() => {
+      setSubmitting(false);
+      setError('Login is taking longer than expected. Please check your connection or try again.');
+    }, 10000);
 
     try {
       if (loginType === 'email') {
@@ -166,6 +171,7 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
         if (emailError) {
           setError(emailError);
           setSubmitting(false);
+          clearTimeout(stuckTimeout);
           return;
         }
         console.log('[AuthPage] Calling login() in AuthContext...');
@@ -186,6 +192,7 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
           if (phoneError) {
             setError(phoneError);
             setSubmitting(false);
+            clearTimeout(stuckTimeout);
             return;
           }
           console.log('[AuthPage] Requesting OTP...');
@@ -207,6 +214,7 @@ function LoginForm({ onSwitch }: { onSwitch: () => void }) {
       setError(err.message || 'An unexpected error occurred');
     } finally {
       console.log('[AuthPage] handleSubmit finally block: setting submitting=false');
+      clearTimeout(stuckTimeout);
       setSubmitting(false);
     }
   };
@@ -501,11 +509,11 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
     }
     setSubmitting(true);
     
-    // Safety un-stuck: if it takes more than 50s, un-disable the button
+    // Safety un-stuck: if it takes more than 10s, un-disable the button
     const stuckTimeout = setTimeout(() => {
       setSubmitting(false);
-      setError('Registration is taking longer than expected. Please check your connection.');
-    }, 50000);
+      setError('Registration is taking longer than expected. Please check your connection or try again.');
+    }, 10000);
 
     try {
       console.log('[AuthPage] Submitting registration for:', form.email);
@@ -515,8 +523,8 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
         name: form.role === 'shelter' ? form.shelterName : form.name,
         location: form.role === 'shelter' ? form.shelterAddress : form.location,
         specializations: form.specialization ? [form.specialization] : [],
-        experience: parseInt(form.experience) || 0,
-        baseRate: parseFloat(form.baseRate) || 0,
+        experience: Number(form.experience) || 0,
+        baseRate: Number(form.baseRate) || 0,
         shelterLat: form.shelterLat ? (parseFloat(form.shelterLat) || 0) : undefined,
         shelterLng: form.shelterLng ? (parseFloat(form.shelterLng) || 0) : undefined,
         shelterCapacity: form.shelterCapacity ? (parseInt(form.shelterCapacity) || 0) : undefined,
@@ -526,7 +534,7 @@ function RegisterForm({ onSwitch }: { onSwitch: () => void }) {
       console.log('[AuthPage] Registration API result:', result);
 
       if (!result.success) {
-        setError(result.error || 'Registration failed. Please check your details.');
+        setError(result.error || 'Registration failed. Please try again.');
       } else {
         // Save credentials for convenient login later
         localStorage.setItem('login_email', form.email);

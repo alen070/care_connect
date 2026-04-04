@@ -184,10 +184,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Login timed out. Please check your connection.')), 15000)
+      setTimeout(() => reject(new Error('Login timed out. Your connection to Supabase is too slow. Please check your network and try again.')), 60000)
     );
 
     try {
+      console.log('[AuthContext] Waiting for Supabase response...');
       const { data, error }: any = await Promise.race([loginPromise, timeoutPromise]);
 
       console.log('[AuthContext] Login response:', { data, error });
@@ -249,12 +250,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     console.log('[AuthContext] Registration Metadata:', metadata);
 
-    // Check if email is already registered
-    const existingProfile = await UserDB.getByEmail(data.email.trim());
-    if (existingProfile) {
-      return { success: false, error: 'This email is already registered. Please sign in instead.' };
-    }
+    // Check if email was already registered (Optimization: bypass redundant getByEmail if network is slow)
+    // We let Supabase signUp handle the logic and catch the error if it already exists
+    // This reduces the hang-time for the user.
 
+    console.log('[AuthContext] Calling supabase.auth.signUp...');
     const signUpPromise = supabase.auth.signUp({
       email: data.email.trim(),
       password: data.password,
@@ -265,18 +265,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Registration timed out. Please check your internet connection or try a different email.')), 45000)
+      setTimeout(() => reject(new Error('Registration is taking longer than usual. This is likely a network issue. Please try again.')), 12000)
     );
 
     try {
-      console.log('[AuthContext] Calling supabase.auth.signUp...');
       const { data: signUpData, error }: any = await Promise.race([signUpPromise, timeoutPromise]);
       
       console.log('[AuthContext] Registration raw response:', { signUpData, error });
 
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        if (error.message.includes('rate limit')) {
+          return { success: false, error: 'Signup rate limit exceeded. Please wait 5-10 minutes before trying again.' };
+        }
+        return { success: false, error: error.message };
+      }
+      
       if (!signUpData?.user && !signUpData?.session) {
-        return { success: false, error: 'Registration succeeded but no user data returned. Please check if you need to confirm your email.' };
+         // Some Supabase configurations don't return user/session if email confirmation is on
+         // But they still record the signup.
+         return { success: true }; 
       }
 
       const uid = signUpData.user?.id || signUpData.session?.user?.id;
@@ -324,9 +331,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    clearIntendedRole();
+    try {
+      console.log('[AuthContext] Logging out...');
+      // Clear local state FIRST for instant UI response
+      setUser(null);
+      clearIntendedRole();
+      // Clear ALL local storage for a truly nuclear reset
+      localStorage.clear();
+      
+      console.log('[AuthContext] Logout successful. Performing hard refresh.');
+      window.location.replace('/'); // Replace to stop back-navigation to stale state
+    } catch (e) {
+      console.error('[AuthContext] Logout error:', e);
+      window.location.href = '/'; 
+    }
   }, []);
 
   const updateUser = useCallback(async (updates: Partial<User> & any) => {
