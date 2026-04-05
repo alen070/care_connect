@@ -20,7 +20,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
         Promise.all([
             NurseProfileDB.getByUserId(user.id),
             BookingDB.getByNurseId(user.id),
-            DocumentDB.getByNurseId(user.id)
+            DocumentDB.getMetadataByNurseId(user.id)
         ]).then(async ([initialProfile, bookingsData, docsData]) => {
             let profileData = initialProfile;
             

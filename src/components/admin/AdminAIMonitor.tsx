@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react';
 import { DocumentDB, UserDB, AdminLogDB } from '@/store/database';
 import { useAuth } from '@/store/AuthContext';
-import { Card, Badge, Button, StatsCard, EmptyState } from '@/components/ui';
+import { Card, Badge, Button, StatsCard, EmptyState, ImageViewerModal } from '@/components/ui';
 import { Shield, FileCheck, CheckCircle, AlertTriangle, XCircle, Eye } from 'lucide-react';
 import type { NurseDocument } from '@/types';
 import { cn } from '@/utils/cn';
@@ -20,6 +20,7 @@ export function AdminAIMonitor() {
     const [nurseNames, setNurseNames] = useState<Record<string, string>>({});
     const [filter, setFilter] = useState<'all' | 'genuine' | 'forgery' | 'pending'>('all');
     const [selectedDoc, setSelectedDoc] = useState<NurseDocument | null>(null);
+    const [viewerOpen, setViewerOpen] = useState(false);
 
     useEffect(() => {
         DocumentDB.getAll().then(async docs => {
@@ -178,7 +179,10 @@ export function AdminAIMonitor() {
 
                         {/* Document Preview */}
                         {selectedDoc.fileData && (
-                            <div className="border rounded-xl overflow-hidden max-h-48">
+                            <div 
+                                className="border rounded-xl overflow-hidden max-h-48 cursor-pointer hover:opacity-90 transition-opacity"
+                                onClick={() => setViewerOpen(true)}
+                            >
                                 <img src={selectedDoc.fileData} alt="Document" className="w-full h-48 object-contain bg-gray-50" />
                             </div>
                         )}
@@ -198,6 +202,13 @@ export function AdminAIMonitor() {
                     </div>
                 </div>
             )}
+
+            <ImageViewerModal 
+                isOpen={viewerOpen} 
+                onClose={() => setViewerOpen(false)} 
+                src={selectedDoc?.fileData || ''} 
+                alt="Document Preview" 
+            />
         </div>
     );
 }

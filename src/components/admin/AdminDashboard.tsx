@@ -9,14 +9,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { UserDB, NurseProfileDB, DocumentDB, BookingDB, ShelterReportDB, ShelterDB, AdminLogDB, NotificationDB, StatsDB } from '@/store/database';
+import { UserDB, NurseProfileDB, DocumentDB, BookingDB, ShelterReportDB, ShelterDB, AdminLogDB, NotificationDB, StatsDB, CertificateReviewDB } from '@/store/database';
 import { Button, Card, Badge, Modal, StatsCard, EmptyState, ProgressBar, Input, Select, ImageViewerModal } from '@/components/ui';
 import {
   LayoutDashboard, Users, Stethoscope, FileCheck, Calendar, MapPin,
   CheckCircle, XCircle, AlertTriangle, Eye, Shield, Clock, TrendingUp,
   Trash2, Building, Camera, Pencil, User as UserIcon, BarChart3, ScrollText, Bell, Activity, LogOut, Download
 } from 'lucide-react';
-import type { NurseProfile, NurseDocument, Booking, ShelterReport, Shelter, User } from '@/types';
+import type { NurseProfile, NurseDocument, Booking, ShelterReport, Shelter, User, CertificateReview } from '@/types';
 import { jsPDF } from 'jspdf';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@/store/AuthContext';
@@ -426,17 +426,45 @@ function NurseManagement() {
 }
 
 function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (status: 'approved' | 'rejected') => void }) {
+  const { user: admin } = useAuth();
   const [nurse, setNurse] = useState<NurseProfile | undefined>();
   const [user, setUser] = useState<User | undefined>();
   const [docs, setDocs] = useState<NurseDocument[]>([]);
+  const [certReviews, setCertReviews] = useState<CertificateReview[]>([]);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerSrc, setViewerSrc] = useState('');
 
-  useEffect(() => {
+  const loadData = async () => {
     NurseProfileDB.getByUserId(nurseId).then(setNurse);
     UserDB.getById(nurseId).then(setUser);
     DocumentDB.getByNurseId(nurseId).then(setDocs);
-  }, [nurseId]);
+    CertificateReviewDB.getByNurseIdAdmin(nurseId).then(setCertReviews);
+  };
 
-  if (!nurse || !user) return <p>Loading...</p>;
+  useEffect(() => { loadData(); }, [nurseId]);
+
+  const handleCertAction = async (certId: string, status: 'approved' | 'denied') => {
+    if (!admin) return;
+    await CertificateReviewDB.updateAdminStatus(certId, status, admin.id);
+    await AdminLogDB.create({
+      adminId: admin.id,
+      adminName: admin.name,
+      action: `Certificate ${status === 'approved' ? 'Approved' : 'Denied'}`,
+      target: user?.name || 'Unknown Nurse',
+      details: `Updated certificate verification status to ${status}.`,
+    });
+    // Auto-approve or reject the entire nurse profile based on the certificate decision
+    if (status === 'approved') {
+        onAction('approved');
+    } else {
+        onAction('rejected');
+    }
+    loadData();
+  };
+
+  if (!nurse || !user) return <div className="p-8 flex justify-center"><AlertTriangle className="animate-spin text-gray-400" /></div>;
+
+  const pendingCerts = certReviews.filter(r => r.adminStatus === 'verification_pending');
 
   return (
     <div className="space-y-6">
@@ -468,16 +496,103 @@ function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (
         </div>
       </div>
 
-      {/* Documents with AI Analysis */}
+      {/* ── NEW: Roboflow Certificate Verifications ── */}
+      {certReviews.length > 0 && (
+        <div className="space-y-4">
+          <h4 className="font-semibold text-gray-900 flex items-center gap-2 border-b pb-2">
+            <CheckCircle className="w-5 h-5 text-emerald-600" /> AI Certificate Verification
+          </h4>
+          {certReviews.map(cert => (
+            <Card key={cert.id} className={cn("p-4 border-2 lg:flex gap-4 items-start", {
+              'border-amber-200 bg-amber-50': cert.adminStatus === 'verification_pending',
+              'border-emerald-200 bg-emerald-50': cert.adminStatus === 'approved',
+              'border-red-200 bg-red-50': cert.adminStatus === 'denied',
+            })}>
+              <div className="flex gap-3 shrink-0 mb-4 lg:mb-0">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Uploaded Cert</p>
+                  <img
+                    src={cert.certificateUrl}
+                    alt="Certificate"
+                    className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
+                    onClick={() => { setViewerSrc(cert.certificateUrl); setViewerOpen(true); }}
+                  />
+                </div>
+                {cert.croppedSignatureUrl && (
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500 mb-1">AI Extracted Signature</p>
+                    <img
+                      src={cert.croppedSignatureUrl}
+                      alt="Signature Box"
+                      className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 border-blue-400"
+                      onClick={() => { setViewerSrc(cert.croppedSignatureUrl!); setViewerOpen(true); }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-xs text-gray-500 font-medium">Submitted: {new Date(cert.createdAt).toLocaleString()}</span>
+                  <Badge variant={cert.adminStatus === 'approved' ? 'success' : cert.adminStatus === 'denied' ? 'danger' : 'warning'}>
+                    {cert.adminStatus.replace('_', ' ').toUpperCase()}
+                  </Badge>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">Object Detection (Signature)</p>
+                    {cert.detectionFound ? (
+                      <div className="flex items-center gap-2">
+                         <Badge variant="success">Found</Badge>
+                         <span className="text-sm font-bold text-gray-700">{((cert.detectionConfidence || 0) * 100).toFixed(1)}%</span>
+                      </div>
+                    ) : (
+                      <Badge variant="danger">Not Found</Badge>
+                    )}
+                  </div>
+                  
+                  <div className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">Classifier (Verification)</p>
+                    {cert.classifierLabel ? (
+                      <div className="flex items-center gap-2">
+                         <Badge variant={cert.classifierLabel === 'genuine' ? 'success' : 'danger'}>
+                           {cert.classifierLabel.toUpperCase()}
+                         </Badge>
+                         <span className="text-sm font-bold text-gray-700">{((cert.classifierConfidence || 0) * 100).toFixed(1)}%</span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400 italic">No signature to classify</span>
+                    )}
+                  </div>
+                </div>
+
+                {cert.adminStatus === 'verification_pending' && (
+                  <div className="flex gap-2">
+                    <Button variant="success" className="flex-1" onClick={() => handleCertAction(cert.id, 'approved')}>
+                      <CheckCircle className="w-4 h-4 mr-2" /> Approve Certificate & Nurse
+                    </Button>
+                    <Button variant="danger" className="flex-1" onClick={() => handleCertAction(cert.id, 'denied')}>
+                      <XCircle className="w-4 h-4 mr-2" /> Deny (Request Re-upload)
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Legacy Documents with AI Analysis */}
       <div className="space-y-4">
-        <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-          <Shield className="w-5 h-5 text-blue-600" /> Uploaded Documents & AI Analysis
+        <h4 className="font-semibold text-gray-900 flex items-center gap-2 border-b mt-6 pb-2">
+          <Shield className="w-5 h-5 text-blue-600" /> Legacy Identity Documents
         </h4>
 
         {docs.length === 0 ? (
           <div className="bg-amber-50 rounded-xl p-4 text-center">
             <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-            <p className="text-sm text-amber-700">No documents uploaded yet</p>
+            <p className="text-sm text-amber-700">No legacy documents uploaded</p>
           </div>
         ) : (
           docs.map(doc => (
@@ -485,7 +600,12 @@ function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (
               <div className="flex items-start gap-4">
                 {/* Document Preview */}
                 {doc.fileData && !doc.fileData.includes('application/pdf') && (
-                  <img src={doc.fileData} alt={doc.fileName} className="w-24 h-24 object-cover rounded-lg border" />
+                  <img 
+                    src={doc.fileData} 
+                    alt={doc.fileName} 
+                    className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity" 
+                    onClick={() => { setViewerSrc(doc.fileData); setViewerOpen(true); }}
+                  />
                 )}
 
                 <div className="flex-1 space-y-3">
@@ -534,21 +654,25 @@ function NurseReviewDetail({ nurseId, onAction }: { nurseId: string; onAction: (
         )}
       </div>
 
-      {/* Admin Decision */}
-      <Card className="p-5 bg-indigo-50 border-indigo-200">
-        <h4 className="font-semibold text-gray-900 mb-3">Admin Decision</h4>
-        <p className="text-sm text-gray-600 mb-4">
-          AI analysis assists your decision. You have the final say on whether to approve or reject this nurse's registration.
-        </p>
-        <div className="flex gap-3">
-          <Button variant="success" onClick={() => onAction('approved')}>
-            <CheckCircle className="w-4 h-4" /> Approve Nurse
-          </Button>
-          <Button variant="danger" onClick={() => onAction('rejected')}>
-            <XCircle className="w-4 h-4" /> Reject Nurse
-          </Button>
-        </div>
-      </Card>
+      {/* Admin Decision Overview */}
+      {pendingCerts.length === 0 && (
+         <Card className="p-5 bg-indigo-50 border-indigo-200 mt-6">
+           <h4 className="font-semibold text-gray-900 mb-3">Overall Admin Decision</h4>
+           <p className="text-sm text-gray-600 mb-4">
+             AI analysis assists your decision. You have the final say on whether to approve or reject this nurse's registration.
+           </p>
+           <div className="flex gap-3">
+             <Button variant="success" onClick={() => onAction('approved')}>
+               <CheckCircle className="w-4 h-4 mr-2" /> Approve Nurse Profile
+             </Button>
+             <Button variant="danger" onClick={() => onAction('rejected')}>
+               <XCircle className="w-4 h-4 mr-2" /> Reject Nurse Profile
+             </Button>
+           </div>
+         </Card>
+      )}
+
+      <ImageViewerModal isOpen={viewerOpen} onClose={() => setViewerOpen(false)} src={viewerSrc} alt="Document Review" />
     </div>
   );
 }

@@ -100,33 +100,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } as User;
     }
 
-    // 5. Create sub-profiles (nurse_profiles / shelters) if missing
+    // 5. Create sub-profiles (nurse_profiles / shelters) if missing — FAST & PARALLEL
     const role = profile.role;
-    if (role === 'nurse') {
-      const n = await NurseProfileDB.getByUserId(profile.id);
-      if (!n) {
-        console.log('[AuthContext] Creating missing nurse_profile');
-        await NurseProfileDB.create({
-          userId: profile.id, specializations: [], experience: 0, baseRate: 0,
-          rateType: 'hourly', bio: '', location: profile.location || '',
-          serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+    try {
+      if (role === 'nurse') {
+        // We don't necessarily need to block the whole user resolution for this
+        // But for consistency we check it
+        NurseProfileDB.getByUserId(profile.id).then(async (n) => {
+          if (!n) {
+            console.log('[AuthContext] Creating missing nurse_profile in background');
+            await NurseProfileDB.create({
+              userId: profile!.id, specializations: [], experience: 0, baseRate: 0,
+              rateType: 'hourly', bio: '', location: profile!.location || '',
+              serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+            });
+          }
+        }).catch(console.error);
+      } else if (role === 'shelter') {
+        ShelterDB.getByUserId(profile.id).then(async (s) => {
+          if (!s) {
+            const orphan = await ShelterDB.getByEmail(profile!.email);
+            if (orphan && !orphan.shelterUserId) {
+              await ShelterDB.update(orphan.id, { shelterUserId: profile!.id });
+            } else if (!orphan) {
+              await ShelterDB.create({
+                name: (meta?.name || profile!.name || 'New') + ' Shelter',
+                address: profile!.location || '',
+                latitude: 0, longitude: 0, phone: profile!.phone || '',
+                email: profile!.email, capacity: 50, shelterUserId: profile!.id
+              });
+            }
+          }
         }).catch(console.error);
       }
-    } else if (role === 'shelter') {
-      let s = await ShelterDB.getByUserId(profile.id);
-      if (!s) {
-        const orphan = await ShelterDB.getByEmail(profile.email);
-        if (orphan && !orphan.shelterUserId) {
-          await ShelterDB.update(orphan.id, { shelterUserId: profile.id });
-        } else if (!orphan) {
-          await ShelterDB.create({
-            name: (meta?.name || profile.name || 'New') + ' Shelter',
-            address: profile.location || '',
-            latitude: 0, longitude: 0, phone: profile.phone || '',
-            email: profile.email, capacity: 50, shelterUserId: profile.id
-          }).catch(console.error);
-        }
-      }
+    } catch (e) {
+      console.warn('[AuthContext] Sub-profile repair failed (non-critical):', e);
     }
 
     return profile;

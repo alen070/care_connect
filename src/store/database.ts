@@ -12,7 +12,7 @@
 import { supabase } from '../lib/supabase';
 import type {
   User, NurseProfile, NurseDocument, Booking,
-  ShelterReport, Shelter, Notification, AdminLog
+  ShelterReport, Shelter, Notification, AdminLog, CertificateReview
 } from '../types';
 
 /* ─── Helper: map snake_case DB rows to camelCase types ─── */
@@ -341,11 +341,31 @@ export const DocumentDB = {
     return (data || []).map(mapDocument);
   },
 
-  getByNurseId: async (nurseId: string): Promise<NurseDocument[]> => {
+  getByNurseId: async (nurse_id: string): Promise<NurseDocument[]> => {
     const { data, error } = await supabase
-      .from('nurse_documents').select('*').eq('nurse_id', nurseId);
+      .from('nurse_documents').select('*').eq('nurse_id', nurse_id);
     if (error) return [];
     return (data || []).map(mapDocument);
+  },
+
+  /** Fetch document metadata WITHOUT the heavy file_data blob */
+  getMetadataByNurseId: async (nurse_id: string): Promise<NurseDocument[]> => {
+    const { data, error } = await supabase
+      .from('nurse_documents')
+      .select('id, nurse_id, file_name, file_type, document_type, ai_analysis, uploaded_at')
+      .eq('nurse_id', nurse_id);
+    if (error) return [];
+    // Map with empty fileData to satisfy the type
+    return (data || []).map(row => ({
+      id: row.id as string,
+      nurseId: row.nurse_id as string,
+      fileName: row.file_name as string,
+      fileType: row.file_type as string,
+      fileData: '', 
+      uploadedAt: row.uploaded_at as string,
+      documentType: row.document_type as any,
+      aiAnalysis: row.ai_analysis as any,
+    }));
   },
 
   getById: async (id: string): Promise<NurseDocument | undefined> => {
@@ -802,3 +822,109 @@ export const StatsDB = {
   }
 };
 
+/* ─── CERTIFICATE REVIEW operations ─── */
+
+function mapCertificateReview(row: Record<string, unknown>): CertificateReview {
+  return {
+    id: row.id as string,
+    nurseId: row.nurse_id as string,
+    certificateUrl: row.certificate_url as string,
+    croppedSignatureUrl: (row.cropped_signature_url as string) || undefined,
+    detectionFound: row.detection_found as boolean,
+    detectionConfidence: (row.detection_confidence as number) || undefined,
+    classifierLabel: (row.classifier_label as 'genuine' | 'fake') || undefined,
+    classifierConfidence: (row.classifier_confidence as number) || undefined,
+    adminStatus: (row.admin_status as CertificateReview['adminStatus']) || 'verification_pending',
+    adminNote: (row.admin_note as string) || undefined,
+    reviewedAt: (row.reviewed_at as string) || undefined,
+    reviewedBy: (row.reviewed_by as string) || undefined,
+    createdAt: row.created_at as string,
+  };
+}
+
+export const CertificateReviewDB = {
+  /** Nurse: get their own review records (most recent first) */
+  getByNurseId: async (nurseId: string): Promise<CertificateReview[]> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .select('*')
+      .eq('nurse_id', nurseId)
+      .order('created_at', { ascending: false });
+    if (error) { console.error('CertificateReviewDB.getByNurseId:', error); return []; }
+    return (data || []).map(mapCertificateReview);
+  },
+
+  /** Admin: get all review records (most recent first) */
+  getAll: async (): Promise<CertificateReview[]> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) { console.error('CertificateReviewDB.getAll:', error); return []; }
+    return (data || []).map(mapCertificateReview);
+  },
+
+  /** Admin: get pending reviews only */
+  getPending: async (): Promise<CertificateReview[]> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .select('*')
+      .eq('admin_status', 'verification_pending')
+      .order('created_at', { ascending: false });
+    if (error) return [];
+    return (data || []).map(mapCertificateReview);
+  },
+
+  /** Get reviews for a specific nurse (used in admin nurse review modal) */
+  getByNurseIdAdmin: async (nurseId: string): Promise<CertificateReview[]> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .select('*')
+      .eq('nurse_id', nurseId)
+      .order('created_at', { ascending: false });
+    if (error) return [];
+    return (data || []).map(mapCertificateReview);
+  },
+
+  /** Admin: update admin_status to approved or denied */
+  updateAdminStatus: async (
+    id: string,
+    status: 'approved' | 'denied',
+    adminId: string,
+    note?: string
+  ): Promise<CertificateReview | undefined> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .update({
+        admin_status: status,
+        admin_note: note || null,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: adminId,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) { console.error('CertificateReviewDB.updateAdminStatus:', error); return undefined; }
+    return mapCertificateReview(data);
+  },
+
+  /** Insert a new review record (called after Edge Function completes) */
+  create: async (review: Omit<CertificateReview, 'id' | 'createdAt'>): Promise<CertificateReview | undefined> => {
+    const { data, error } = await supabase
+      .from('nurse_certificate_reviews')
+      .insert({
+        nurse_id: review.nurseId,
+        certificate_url: review.certificateUrl,
+        cropped_signature_url: review.croppedSignatureUrl || null,
+        detection_found: review.detectionFound,
+        detection_confidence: review.detectionConfidence || null,
+        classifier_label: review.classifierLabel || null,
+        classifier_confidence: review.classifierConfidence || null,
+        admin_status: review.adminStatus || 'verification_pending',
+      })
+      .select()
+      .single();
+    if (error) { console.error('CertificateReviewDB.create:', error); return undefined; }
+    return mapCertificateReview(data);
+  },
+};

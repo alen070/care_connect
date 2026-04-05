@@ -123,7 +123,11 @@ BEGIN
   UPDATE public.profiles SET
     name = coalesce(new.raw_user_meta_data->>'name', name),
     phone = coalesce(new.raw_user_meta_data->>'phone', phone),
-    role = v_role,
+    role = CASE 
+             -- If they are already an admin in public.profiles, do not let metadata downgrading affect them
+             WHEN role = 'admin' THEN 'admin'
+             ELSE coalesce(v_role, role)
+           END,
     location = coalesce(new.raw_user_meta_data->>'location', location)
   WHERE id = new.id;
 

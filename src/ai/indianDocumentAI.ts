@@ -62,9 +62,20 @@ export async function analyzeIndianDocument(fileData: string): Promise<DocumentA
     const cleanText = extractedText.replace(/\s+/g, ' ').toUpperCase();
 
     // 2. Aadhaar Validation
-    const isAadhaarKeyword = cleanText.includes('GOVERNMENT OF INDIA') || cleanText.includes('UNIQUE IDENTIFICATION AUTHORITY');
+    const isAadhaarKeyword = cleanText.includes('GOVERNMENT OF INDIA') || 
+                             cleanText.includes('UNIQUE IDENTIFICATION AUTHORITY') ||
+                             cleanText.includes('AADHAAR');
+                             
+    // Aadhaar 12-digit format (e.g. 3878 8533 0689)
     const aadhaarRegex = /\b\d{4}\s?\d{4}\s?\d{4}\b/;
     const hasAadhaarNumber = aadhaarRegex.test(cleanText);
+
+    // Virtual ID (VID) 16-digit format (e.g. VID : 9126 4255 6987 0170)
+    const vidRegex = /\b(?:VID|VIO)\s*[:;-]?\s*\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b/;
+    const hasVid = vidRegex.test(cleanText);
+
+    // Gender indicator often present next to DOB
+    const hasGender = /\b(?:MALE|FEMALE|TRANSGENDER)\b/.test(cleanText);
 
     // 3. PAN Validation
     const isPanKeyword = cleanText.includes('INCOME TAX DEPARTMENT') || cleanText.includes('GOVT. OF INDIA');
@@ -76,15 +87,36 @@ export async function analyzeIndianDocument(fileData: string): Promise<DocumentA
     const hasDob = dobRegex.test(cleanText);
 
     // Scoring Logic
-    if (isAadhaarKeyword && hasAadhaarNumber) {
+    if (isAadhaarKeyword && (hasAadhaarNumber || hasVid)) {
       docType = 'aadhaar_card';
-      confidenceScore = 0.95;
-      detectedFeatures.push('Valid 12-digit UID format', 'Govt of India Header');
-      if (hasDob) detectedFeatures.push('DOB Field matches format');
-    } else if (isAadhaarKeyword && !hasAadhaarNumber) {
+      confidenceScore = 0.85; // Base valid Aadhaar
+      
+      if (hasAadhaarNumber) {
+        detectedFeatures.push('Valid 12-digit UID format');
+        confidenceScore += 0.05;
+      }
+      if (hasVid) {
+        detectedFeatures.push('Valid 16-digit VID format');
+        confidenceScore += 0.03;
+      }
+      
+      detectedFeatures.push('Govt of India Header');
+      
+      if (hasDob) {
+        detectedFeatures.push('Date of Birth sequence detected');
+        confidenceScore += 0.02;
+      }
+      if (hasGender) {
+        detectedFeatures.push('Gender demographic marker present');
+        confidenceScore += 0.02;
+      }
+      
+      // Prevent going over 1.0
+      confidenceScore = Math.min(confidenceScore, 0.98);
+    } else if (isAadhaarKeyword && !hasAadhaarNumber && !hasVid) {
       docType = 'aadhaar_card';
       confidenceScore = 0.4;
-      anomalies.push('Aadhaar keywords found, but no valid 12-digit UID detected.');
+      anomalies.push('Aadhaar keywords found, but no valid 12-digit UID or 16-digit VID detected.');
     } else if (isPanKeyword && hasPanNumber) {
       docType = 'pan_card';
       confidenceScore = 0.95;

@@ -11,10 +11,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
 import { NurseProfileDB, DocumentDB, BookingDB, NotificationDB } from '@/store/database';
-import { analyzeIndianDocument } from '@/ai/indianDocumentAI';
 import { Button, Input, Textarea, Card, Badge, Modal, EmptyState, Spinner, ProgressBar } from '@/components/ui';
 import { User, Upload, FileCheck, Calendar, CheckCircle, XCircle, Clock, Shield, AlertTriangle, FileText, Activity, IndianRupee, Star, Bell, Heart } from 'lucide-react';
-import type { NurseProfile, NurseDocument, Booking, DocumentAnalysis } from '@/types';
+import type { NurseProfile, NurseDocument, Booking, DocumentAnalysis, CertificateReview } from '@/types';
 import { cn } from '@/utils/cn';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 
@@ -25,6 +24,9 @@ import { NurseRatings } from './NurseRatings';
 import { NurseNotifications } from './NurseNotifications';
 import { NurseAccount } from './NurseAccount';
 import { HomelessReport } from '../shared/ReportManager';
+import { ImageViewerModal } from '@/components/ui/ImageViewerModal';
+import { CertificateReviewDB } from '@/store/database';
+import { verifyCertificate } from '@/ai/certificateVerification';
 
 type Tab = 'overview' | 'profile' | 'documents' | 'bookings' | 'schedule' | 'earnings' | 'ratings' | 'report' | 'notifications' | 'account';
 
@@ -329,81 +331,14 @@ function ProfileManager() {
 function DocumentManager() {
   const { user } = useAuth();
   const [documents, setDocuments] = useState<NurseDocument[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<NurseDocument | null>(null);
 
   useEffect(() => {
-    DocumentDB.getByNurseId(user!.id).then(setDocuments);
+    DocumentDB.getMetadataByNurseId(user!.id).then(setDocuments);
   }, [user]);
 
-  const refresh = () => DocumentDB.getByNurseId(user!.id).then(setDocuments);
 
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, docType: 'certificate' | 'government_id' | 'license') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setAnalyzing(true);
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const fileData = reader.result as string;
-
-      // Create document record
-      const doc = await DocumentDB.create({
-        nurseId: user!.id,
-        fileName: file.name,
-        fileType: file.type,
-        fileData,
-        documentType: docType,
-      });
-
-      // Run AI analysis on the uploaded document
-      try {
-        const analysis = await analyzeIndianDocument(fileData);
-        const docAnalysis: DocumentAnalysis = {
-          result: analysis.result,
-          confidenceScore: analysis.confidenceScore,
-          edgeConsistency: analysis.edgeConsistency,
-          textureAnalysis: analysis.textureAnalysis,
-          compressionArtifacts: analysis.compressionArtifacts,
-          ocrConsistency: analysis.ocrConsistency,
-          fontConsistency: analysis.fontConsistency,
-          alignmentScore: analysis.alignmentScore,
-          extractedText: analysis.extractedText,
-          anomalies: analysis.anomalies,
-          analyzedAt: analysis.analyzedAt,
-        };
-        await DocumentDB.update(doc.id, { aiAnalysis: docAnalysis });
-      } catch (err) {
-        console.error('AI analysis failed:', err);
-        await DocumentDB.update(doc.id, {
-          aiAnalysis: {
-            result: 'pending',
-            confidenceScore: 0,
-            edgeConsistency: 0,
-            textureAnalysis: 0,
-            compressionArtifacts: 0,
-            ocrConsistency: 0,
-            fontConsistency: 0,
-            alignmentScore: 0,
-            extractedText: 'Analysis failed',
-            anomalies: ['Unable to process image'],
-            analyzedAt: new Date().toISOString(),
-          },
-        });
-      }
-
-      setUploading(false);
-      setAnalyzing(false);
-      refresh();
-    };
-    reader.readAsDataURL(file);
-
-    // Reset input
-    e.target.value = '';
-  }, [user]);
+  const refresh = () => DocumentDB.getMetadataByNurseId(user!.id).then(setDocuments);
 
   const deleteDoc = async (id: string) => {
     await DocumentDB.delete(id);
@@ -412,7 +347,7 @@ function DocumentManager() {
 
   return (
     <div className="space-y-6">
-      <Card className="p-4 bg-blue-50 border-blue-200">
+      <Card className="p-4 bg-blue-50 border-blue-200 mb-6">
         <div className="flex items-start gap-3">
           <Shield className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
           <div>
@@ -424,30 +359,9 @@ function DocumentManager() {
         </div>
       </Card>
 
-      {/* Upload Section */}
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Upload Documents</h3>
-        <div className="grid sm:grid-cols-3 gap-4">
-          {(['certificate', 'government_id', 'license'] as const).map(type => (
-            <label key={type} className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-400 transition-colors cursor-pointer">
-              <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <p className="text-sm font-medium text-gray-700 capitalize">{type.replace('_', ' ')}</p>
-              <p className="text-xs text-gray-500 mt-1">PNG, JPG, PDF</p>
-              <input type="file" accept="image/*,.pdf" className="hidden"
-                onChange={e => handleUpload(e, type)} disabled={uploading} />
-            </label>
-          ))}
-        </div>
+      {/* ── NEW: Certificate Verification Section ── */}
+      <CertificateVerificationSection nurseId={user!.id} />
 
-        {(uploading || analyzing) && (
-          <div className="mt-4 text-center">
-            <Spinner size="sm" />
-            <p className="text-sm text-blue-600 mt-2">
-              {analyzing ? '🤖 AI is analyzing your document...' : 'Uploading...'}
-            </p>
-          </div>
-        )}
-      </Card>
 
       {/* Uploaded Documents */}
       {documents.length > 0 && (
@@ -492,7 +406,11 @@ function DocumentManager() {
 
               <div className="flex gap-2 mt-3">
                 {doc.aiAnalysis && (
-                  <Button size="sm" variant="ghost" onClick={() => setSelectedDoc(doc)}>
+                  <Button size="sm" variant="ghost" onClick={async () => {
+                    const fullDoc = await DocumentDB.getById(doc.id);
+                    if (fullDoc) setSelectedDoc(fullDoc);
+                    else setSelectedDoc(doc);
+                  }}>
                     View Analysis
                   </Button>
                 )}
@@ -514,6 +432,7 @@ function DocumentManager() {
 }
 
 function AnalysisDetail({ analysis, fileName, fileData }: { analysis: DocumentAnalysis; fileName: string; fileData: string }) {
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
   const metrics = [
     { label: 'Edge Consistency', value: analysis.edgeConsistency, desc: 'Measures consistency of edge patterns across the document' },
     { label: 'Texture Analysis', value: analysis.textureAnalysis, desc: 'Checks uniformity of texture in document regions' },
@@ -528,7 +447,18 @@ function AnalysisDetail({ analysis, fileName, fileData }: { analysis: DocumentAn
       {/* Document Preview */}
       {fileData && !fileData.includes('application/pdf') && (
         <div className="bg-gray-50 rounded-xl p-4 text-center">
-          <img src={fileData} alt={fileName} className="max-h-48 mx-auto rounded-lg" />
+          <img 
+            src={fileData} 
+            alt={fileName} 
+            className="max-h-48 mx-auto rounded-lg cursor-pointer hover:opacity-90 transition-opacity" 
+            onClick={() => setIsViewerOpen(true)}
+          />
+          <ImageViewerModal
+            isOpen={isViewerOpen}
+            onClose={() => setIsViewerOpen(false)}
+            src={fileData}
+            alt={fileName}
+          />
         </div>
       )}
 
@@ -593,7 +523,168 @@ function AnalysisDetail({ analysis, fileName, fileData }: { analysis: DocumentAn
 }
 
 /* ─────────────────────────────────────────── */
-/*             BOOKING MANAGEMENT              */
+/*     CERTIFICATE VERIFICATION SECTION        */
+/* (Roboflow Pipeline - Nurse-facing UI)       */
+/* ─────────────────────────────────────────── */
+
+function CertificateVerificationSection({ nurseId }: { nurseId: string }) {
+  const [reviews, setReviews] = useState<CertificateReview[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerSrc, setViewerSrc] = useState('');
+
+  const loadReviews = async () => {
+    setLoading(true);
+    const data = await CertificateReviewDB.getByNurseId(nurseId);
+    setReviews(data);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadReviews(); }, [nurseId]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      setError('Only JPG, PNG, or WEBP images are accepted.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('File must be under 5 MB.');
+      return;
+    }
+
+    setError(null);
+    setUploading(true);
+    const result = await verifyCertificate(file, nurseId);
+    setUploading(false);
+    e.target.value = '';
+
+    if (!result.success) {
+      setError(result.error || 'Verification failed. Please try again.');
+      return;
+    }
+
+    await loadReviews();
+  };
+
+  const latestReview = reviews[0];
+
+  const statusBadge = (status: CertificateReview['adminStatus']) => {
+    if (status === 'approved') return <Badge variant="success">✅ Approved</Badge>;
+    if (status === 'denied')   return <Badge variant="danger">❌ Denied</Badge>;
+    return <Badge variant="warning">⏳ Verification Pending</Badge>;
+  };
+
+  return (
+    <Card className="p-5 border-2 border-indigo-100 bg-indigo-50/30">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 bg-indigo-100 rounded-xl">
+          <Shield className="w-5 h-5 text-indigo-600" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-gray-900">Certificate Verification</h3>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Spinner size="sm" /> Loading status...
+        </div>
+      ) : latestReview ? (
+        <div className="space-y-3">
+          {/* Status banner */}
+          <div className={cn('rounded-xl p-3 flex items-center justify-between', {
+            'bg-emerald-50 border border-emerald-200': latestReview.adminStatus === 'approved',
+            'bg-red-50 border border-red-200':         latestReview.adminStatus === 'denied',
+            'bg-amber-50 border border-amber-200':     latestReview.adminStatus === 'verification_pending',
+          })}>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Latest Certificate Review</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Submitted {new Date(latestReview.createdAt).toLocaleDateString()}
+              </p>
+              {latestReview.adminStatus === 'denied' && latestReview.adminNote && (
+                <p className="text-xs text-red-600 mt-1">Admin note: {latestReview.adminNote}</p>
+              )}
+            </div>
+            {statusBadge(latestReview.adminStatus)}
+          </div>
+
+          {/* Certificate thumbnail */}
+          <div className="flex gap-3">
+            {latestReview.certificateUrl && (
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-1">Certificate</p>
+                <img
+                  src={latestReview.certificateUrl}
+                  alt="Certificate"
+                  className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => { setViewerSrc(latestReview.certificateUrl); setViewerOpen(true); }}
+                />
+              </div>
+            )}
+            {latestReview.croppedSignatureUrl && (
+              <div className="text-center">
+                <p className="text-xs text-gray-500 mb-1">Signature Detected</p>
+                <img
+                  src={latestReview.croppedSignatureUrl}
+                  alt="Signature"
+                  className="w-20 h-20 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => { setViewerSrc(latestReview.croppedSignatureUrl!); setViewerOpen(true); }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Re-upload if denied */}
+          {latestReview.adminStatus === 'denied' && (
+            <label className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm cursor-pointer hover:bg-gray-50 transition-colors">
+              <Upload className="w-4 h-4 text-gray-500" />
+              Re-upload Certificate
+              <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+            </label>
+          )}
+        </div>
+      ) : (
+        /* No review yet — show upload prompt */
+        <div className="border-2 border-dashed border-indigo-200 rounded-xl p-6 text-center">
+          <FileCheck className="w-8 h-8 text-indigo-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-gray-700 mb-1">Upload your Certificate for AI Verification</p>
+          <p className="text-xs text-gray-500 mb-3">Our AI will detect your signature and analyse the document. The admin will review and approve.</p>
+          <label className={cn(
+            'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer',
+            uploading ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+          )}>
+            {uploading ? <><Spinner size="sm" /> Analysing...</> : <><Upload className="w-4 h-4" /> Upload Certificate</>}
+            <input type="file" accept="image/*" className="hidden" onChange={handleUpload} disabled={uploading} />
+          </label>
+        </div>
+      )}
+
+      {uploading && (
+        <div className="mt-3 text-center text-sm text-indigo-600 flex items-center justify-center gap-2">
+          <Spinner size="sm" />
+          🤖 AI is analysing your certificate signature...
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 p-3 bg-red-50 rounded-xl border border-red-100 flex items-center gap-2 text-sm text-red-700">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
+        </div>
+      )}
+
+      <ImageViewerModal isOpen={viewerOpen} onClose={() => setViewerOpen(false)} src={viewerSrc} alt="Certificate" />
+    </Card>
+  );
+}
+
+
 /* ─────────────────────────────────────────── */
 
 function BookingManager() {

@@ -18,6 +18,27 @@ export type BookingStatus = 'pending' | 'accepted' | 'rejected' | 'completed' | 
 /** Document forgery detection result */
 export type ForgeryResult = 'genuine' | 'suspected_forgery' | 'pending';
 
+/** Certificate review admin status */
+export type CertificateAdminStatus = 'verification_pending' | 'approved' | 'denied';
+
+/** Certificate verification review record (Roboflow pipeline output + admin decision) */
+export interface CertificateReview {
+  id: string;
+  nurseId: string;
+  certificateUrl: string;
+  croppedSignatureUrl?: string;
+  detectionFound: boolean;
+  detectionConfidence?: number;
+  classifierLabel?: 'genuine' | 'fake';
+  classifierConfidence?: number;
+  adminStatus: CertificateAdminStatus;
+  adminNote?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  createdAt: string;
+}
+
+
 /** Base user interface (profile from Supabase profiles table) */
 export interface User {
   id: string;
