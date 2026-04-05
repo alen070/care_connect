@@ -85,6 +85,14 @@ function AppContent() {
     // Determine target role (default to user if missing)
     const role = user?.role || 'user';
 
+    // Transition Safety: If the URL indicates an intended role upgrade but 
+    // the local user state hasn't caught up yet, stay in loading mode.
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlRole = urlParams.get('careconnect_role');
+    if (urlRole && urlRole !== 'user' && role === 'user') {
+      return <LoadingFallback />;
+    }
+
     return (
       <Suspense fallback={<LoadingFallback />}>
         {role === 'admin' && <AdminDashboard onGoToLanding={goToLanding} />}

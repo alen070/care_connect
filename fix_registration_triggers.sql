@@ -96,11 +96,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 3. Recreate the trigger
+-- 3. Recreate the creation trigger
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 4. Clean up the other trigger to avoid double-processing
+-- 4. NEW: Sync Metadata Updates (Crucial for Google OAuth Role Upgrades)
+-- This ensures that when the frontend calls supabase.auth.updateUser({ data: { role: 'nurse' } }),
+-- the changes are immediately reflected in the public.profiles table.
+CREATE OR REPLACE FUNCTION public.handle_user_update()
+RETURNS trigger AS $$
+DECLARE
+  v_role text;
+BEGIN
+  v_role := coalesce(new.raw_user_meta_data->>'role', old.raw_user_meta_data->>'role');
+  
+  -- Update Profile
+  UPDATE public.profiles SET
+    name = coalesce(new.raw_user_meta_data->>'name', name),
+    phone = coalesce(new.raw_user_meta_data->>'phone', phone),
+    role = v_role,
+    location = coalesce(new.raw_user_meta_data->>'location', location)
+  WHERE id = new.id;
+
+  -- Ensure sub-profiles exist if role was upgraded
+  IF v_role = 'nurse' THEN
+    INSERT INTO public.nurse_profiles (user_id, verification_status)
+    VALUES (new.id, 'pending')
+    ON CONFLICT (user_id) DO NOTHING;
+  ELSIF v_role = 'shelter' THEN
+    INSERT INTO public.shelters (name, address, email, shelter_user_id)
+    VALUES (
+      coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+      coalesce(new.raw_user_meta_data->>'location', ''),
+      new.email,
+      new.id
+    )
+    ON CONFLICT (shelter_user_id) DO NOTHING;
+  END IF;
+
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
+CREATE TRIGGER on_auth_user_updated
+  AFTER UPDATE ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_user_update();
+
+-- 5. Clean up the other trigger to avoid double-processing
 DROP TRIGGER IF EXISTS on_auth_user_created_shelter ON auth.users;

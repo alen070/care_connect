@@ -20,158 +20,152 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getIntendedRole = () => localStorage.getItem('intended_role');
   const clearIntendedRole = () => localStorage.removeItem('intended_role');
 
+  /**
+   * Shared helper: given a session, apply the intended role upgrade,
+   * create sub-profiles, and return the final User object.
+   * This is called from BOTH getSession and onAuthStateChange
+   * so the logic is never skipped.
+   */
+  const resolveUserFromSession = async (session: any): Promise<User | null> => {
+    const meta = session.user.user_metadata;
+    const intendedRole = getIntendedRole();
+    console.log('[AuthContext] resolveUser — meta:', meta, 'intendedRole:', intendedRole);
+
+    // 1. Try to fetch existing profile (the Supabase trigger may have created one with role='user')
+    let profile = await UserDB.getById(session.user.id);
+    console.log('[AuthContext] resolveUser — DB profile:', profile);
+
+    // 2. If trigger hasn't fired yet, poll briefly
+    if (!profile) {
+      for (let i = 0; i < 3; i++) {
+        await new Promise(r => setTimeout(r, 800));
+        profile = await UserDB.getById(session.user.id);
+        if (profile) break;
+      }
+    }
+
+    // 3. ROLE UPGRADE
+    // Check both localStorage AND URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlRole = urlParams.get('careconnect_role');
+    const finalIntendedRole = urlRole || intendedRole;
+
+    if (finalIntendedRole && finalIntendedRole !== 'user') {
+      const currentRole = profile?.role || meta?.role || 'user';
+      if (currentRole === 'user' || currentRole === '') {
+        console.log('[AuthContext] ROLE UPGRADE DETECTED:', currentRole, '→', finalIntendedRole);
+        try {
+          // A. Update Supabase User Metadata (Triggers handle_user_update in Postgres)
+          const { error: metaError } = await supabase.auth.updateUser({
+            data: { role: finalIntendedRole }
+          });
+          
+          if (metaError) throw metaError;
+
+          // B. Poll for profile update (ensure DB trigger has completed)
+          // This prevents the UI from rendering the "User" dashboard for a flash.
+          for (let i = 0; i < 5; i++) {
+            await new Promise(r => setTimeout(r, 600));
+            profile = await UserDB.getById(session.user.id);
+            if (profile?.role === finalIntendedRole) {
+              console.log('[AuthContext] Trigger sync confirmed role:', profile.role);
+              break;
+            }
+          }
+          
+          // C. Secondary direct update as fallback (safety net for slow triggers)
+          if (profile?.role !== finalIntendedRole) {
+            console.warn('[AuthContext] Trigger sync slow or failed. Performing manual DB update.');
+            profile = await UserDB.update(session.user.id, { role: finalIntendedRole as any });
+          }
+          
+          console.log('[AuthContext] Role upgrade finalized. Profile:', profile);
+        } catch (e) {
+          console.error('[AuthContext] Role upgrade failed:', e);
+        }
+      }
+      clearIntendedRole();
+      // Clean up URL if needed
+      if (urlRole) window.history.replaceState({}, '', window.location.origin);
+    }
+
+    // 4. If we still don't have a profile at all, create a stub
+    if (!profile) {
+      profile = {
+        id: session.user.id,
+        email: session.user.email!,
+        name: meta?.name || meta?.full_name || 'New User',
+        role: (intendedRole as any) || (meta?.role as any) || 'user',
+        phone: meta?.phone || '',
+        location: meta?.location || '',
+        created_at: session.user.created_at
+      } as User;
+    }
+
+    // 5. Create sub-profiles (nurse_profiles / shelters) if missing
+    const role = profile.role;
+    if (role === 'nurse') {
+      const n = await NurseProfileDB.getByUserId(profile.id);
+      if (!n) {
+        console.log('[AuthContext] Creating missing nurse_profile');
+        await NurseProfileDB.create({
+          userId: profile.id, specializations: [], experience: 0, baseRate: 0,
+          rateType: 'hourly', bio: '', location: profile.location || '',
+          serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+        }).catch(console.error);
+      }
+    } else if (role === 'shelter') {
+      let s = await ShelterDB.getByUserId(profile.id);
+      if (!s) {
+        const orphan = await ShelterDB.getByEmail(profile.email);
+        if (orphan && !orphan.shelterUserId) {
+          await ShelterDB.update(orphan.id, { shelterUserId: profile.id });
+        } else if (!orphan) {
+          await ShelterDB.create({
+            name: (meta?.name || profile.name || 'New') + ' Shelter',
+            address: profile.location || '',
+            latitude: 0, longitude: 0, phone: profile.phone || '',
+            email: profile.email, capacity: 50, shelterUserId: profile.id
+          }).catch(console.error);
+        }
+      }
+    }
+
+    return profile;
+  };
+
   // Initialize database and session
   useEffect(() => {
     initializeDatabase();
 
+    // === 1. Restore session on page load ===
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
-        const profile = await UserDB.getById(session.user.id);
+        const profile = await resolveUserFromSession(session);
         if (profile) setUser(profile);
       }
       setLoading(false);
     }).catch(() => setLoading(false));
 
     // Fallback loading safety
-    const timeout = setTimeout(() => setLoading(false), 5000);
+    const timeout = setTimeout(() => setLoading(false), 8000);
 
+    // === 2. Listen for auth state changes (login, logout, token refresh) ===
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('[AuthContext] onAuthStateChange Event:', event, 'Session User ID:', session?.user?.id);
-        
+        console.log('[AuthContext] onAuthStateChange:', event);
+
         if (event === 'SIGNED_OUT') {
-          console.log('[AuthContext] User signed out');
           setUser(null);
           setLoading(false);
           clearIntendedRole();
           return;
         }
 
-        if (session?.user) {
-          const meta = session.user.user_metadata;
-          const intendedRole = getIntendedRole();
-          console.log('[AuthContext] Session active. Meta:', meta, 'IntendedRole:', intendedRole);
-          
-          let profile = await UserDB.getById(session.user.id);
-          console.log('[AuthContext] Initial profile fetch result:', profile);
-
-          // Provide an immediate stub so App.tsx doesn't flicker back to Landing
-          if (!profile) {
-             console.log('[AuthContext] Profile not found in DB yet. Creating temporary stub.');
-             const stub = {
-               id: session.user.id,
-               email: session.user.email!,
-               name: meta?.name || 'New User',
-               role: (intendedRole as any) || (meta?.role as any) || 'user',
-               phone: meta?.phone || '',
-               location: meta?.location || '',
-               created_at: session.user.created_at
-             } as User;
-             setUser(stub);
-          } else {
-             setUser(profile);
-          }
-          
-          // Keep loading=true if we are about to perform a role upgrade
-          if (!intendedRole) {
-            setLoading(false);
-          }
-
-          // Polling for trigger-created profile (Background - deep sync)
-          if (!profile) {
-             console.log('[AuthContext] Starting profile polling...');
-             let attempts = 0;
-             while (!profile && attempts < 3) {
-               await new Promise(r => setTimeout(r, 800));
-               profile = await UserDB.getById(session.user.id);
-               if (profile) {
-                 console.log('[AuthContext] Profile found during polling!');
-                 break;
-               }
-               attempts++;
-             }
-          }
-
+        if (session?.user && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          const profile = await resolveUserFromSession(session);
           if (profile) setUser(profile);
-
-          // Role Repair Logic (Handle missing profile or Google default 'user' role)
-          const currentRole = profile?.role || meta?.role || '';
-          console.log('[AuthContext] currentRole:', currentRole);
-          
-          if (intendedRole && (currentRole === 'user' || currentRole === '')) {
-            console.log('[AuthContext] Upgrading account to intended role:', intendedRole);
-            try {
-              if (profile) {
-                profile = await UserDB.update(profile.id, { role: intendedRole as any });
-              } else {
-                profile = await UserDB.create({
-                  id: session.user.id,
-                  email: session.user.email!,
-                  name: meta?.name || 'New User',
-                  role: intendedRole as any,
-                  phone: meta?.phone || '',
-                  location: meta?.location || ''
-                });
-              }
-              if (profile) setUser(profile);
-              clearIntendedRole();
-            } catch (e) {
-              console.error('[AuthContext] Role upgrade failed:', e);
-            }
-          }
-          
-          // Now it's safe to show the dashboard
           setLoading(false);
-
-          // Resource Record Repair (Shelter/Nurse)
-          const finalProfile = (profile || {
-            id: session.user.id,
-            email: session.user.email!,
-            role: (intendedRole as any) || (meta?.role as any) || 'user',
-            name: meta?.name || 'New User',
-            phone: meta?.phone || '',
-            location: meta?.location || '',
-            created_at: session.user.created_at
-          }) as User;
-
-          if (finalProfile && finalProfile.role) {
-            const role = finalProfile.role;
-            console.log('[AuthContext] Checking sub-profiles for role:', role);
-            if (role === 'nurse') {
-              const n = await NurseProfileDB.getByUserId(finalProfile.id);
-              if (!n) {
-                console.log('[AuthContext] Repair: Creating missing nurse profile');
-                await NurseProfileDB.create({
-                  userId: finalProfile.id, specializations: [], experience: 0, baseRate: 0,
-                  rateType: 'hourly', bio: '', location: finalProfile.location || '',
-                  serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
-                }).catch(console.error);
-              }
-            } else if (role === 'shelter') {
-              let s = await ShelterDB.getByUserId(finalProfile.id);
-              if (!s) {
-                 console.log('[AuthContext] Repair: Checking for orphaned shelter by email:', finalProfile.email);
-                 let orphan = await ShelterDB.getByEmail(finalProfile.email);
-                 if (orphan) {
-                   if (!orphan.shelterUserId) {
-                     console.log('[AuthContext] Repair: Linking orphaned shelter');
-                     await ShelterDB.update(orphan.id, { shelterUserId: finalProfile.id });
-                   }
-                 } else {
-                   console.log('[AuthContext] Repair: Creating new shelter record');
-                   await ShelterDB.create({
-                     name: (meta?.name || finalProfile.name || 'New') + ' Shelter',
-                     address: finalProfile.location || '',
-                     latitude: 0, longitude: 0, phone: finalProfile.phone || '',
-                     email: finalProfile.email, capacity: 50, shelterUserId: finalProfile.id
-                   }).catch(console.error);
-                 }
-              }
-            }
-          }
-
-          // Final update to set the most accurate profile
-          if (profile) setUser(profile);
         }
       }
     );
@@ -229,10 +223,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithGoogle = useCallback(async (intendedRole?: string) => {
+    console.log('[AuthContext] loginWithGoogle — intended:', intendedRole);
     if (intendedRole) setIntendedRole(intendedRole);
+    
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { 
+        redirectTo: intendedRole 
+          ? `${window.location.origin}/?careconnect_role=${intendedRole}` 
+          : window.location.origin,
+        queryParams: intendedRole ? { role: intendedRole } : {},
+      },
     });
     return error ? { success: false, error: error.message } : { success: true };
   }, []);

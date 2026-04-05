@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/store/AuthContext';
-import { NurseProfileDB, BookingDB } from '@/store/database';
+import { NurseProfileDB, BookingDB, DocumentDB } from '@/store/database';
 import { Card, Badge, Spinner } from '@/components/ui';
-import { CheckCircle, Clock, XCircle, Calendar, IndianRupee, Activity, Users } from 'lucide-react';
-import type { NurseProfile, Booking } from '@/types';
+import { CheckCircle, Clock, XCircle, Calendar, IndianRupee, Activity, Users, FileUp } from 'lucide-react';
+import type { NurseProfile, Booking, NurseDocument } from '@/types';
 import { cn } from '@/utils/cn';
 import { calculateBookingAmount } from '@/utils/booking';
 
@@ -11,6 +11,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
     const { user } = useAuth();
     const [profile, setProfile] = useState<NurseProfile | undefined>(undefined);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [documents, setDocuments] = useState<NurseDocument[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,8 +19,9 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
 
         Promise.all([
             NurseProfileDB.getByUserId(user.id),
-            BookingDB.getByNurseId(user.id)
-        ]).then(async ([initialProfile, bookingsData]) => {
+            BookingDB.getByNurseId(user.id),
+            DocumentDB.getByNurseId(user.id)
+        ]).then(async ([initialProfile, bookingsData, docsData]) => {
             let profileData = initialProfile;
             
             // Auto-repair if nurse profile is missing
@@ -39,6 +41,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
             
             setProfile(profileData || undefined);
             setBookings(bookingsData);
+            setDocuments(docsData);
             setLoading(false);
         });
     }, [user]);
@@ -96,20 +99,28 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
                     profile.verificationStatus === 'pending' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
                 )}>
                     <div className="flex items-center gap-3">
-                        {profile.verificationStatus === 'pending' ? <Clock className="w-5 h-5 text-amber-600" /> : <XCircle className="w-5 h-5 text-red-600" />}
+                        {profile.verificationStatus === 'pending' ? (
+                            documents.length === 0 ? <FileUp className="w-5 h-5 text-amber-600" /> : <Clock className="w-5 h-5 text-amber-600" />
+                        ) : (
+                            <XCircle className="w-5 h-5 text-red-600" />
+                        )}
                         <div>
                             <p className="font-medium text-gray-900">
-                                Status: {profile.verificationStatus.charAt(0).toUpperCase() + profile.verificationStatus.slice(1)}
+                                {profile.verificationStatus === 'pending' 
+                                    ? (documents.length === 0 ? 'Action Required: Verification' : 'Status: Pending Review')
+                                    : 'Status: Rejected'}
                             </p>
                             <p className="text-sm text-gray-600">
                                 {profile.verificationStatus === 'pending'
-                                    ? 'Your documents are currently under review by our admin team.'
+                                    ? (documents.length === 0 
+                                        ? 'Please upload your documents for further verification to start receiving bookings.' 
+                                        : 'Your documents are currently under review by our admin team.')
                                     : 'Your verification was rejected. Please review your documents.'}
                             </p>
                         </div>
                     </div>
                     <button onClick={() => onNavigate('documents')} className="text-sm font-medium text-gray-700 bg-white px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
-                        View Documents
+                        {documents.length === 0 ? 'Upload Documents' : 'View Documents'}
                     </button>
                 </Card>
             ) : (
