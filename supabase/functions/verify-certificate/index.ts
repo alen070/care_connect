@@ -87,9 +87,13 @@ Deno.serve(async (req: Request) => {
     console.log('[verify-certificate] Calling detection model...');
     const detectionRes = await fetch(`${DETECTION_URL}?api_key=${ROBOFLOW_API_KEY}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `image=${encodeURIComponent(base64Image)}`,
+      body: base64Image,
     });
+    
+    if (!detectionRes.ok) {
+      const errorText = await detectionRes.text();
+      throw new Error(`Roboflow detection model failed: ${detectionRes.status} - ${errorText}`);
+    }
     const detectionData = await detectionRes.json();
     console.log('[verify-certificate] Detection result:', JSON.stringify(detectionData));
 
@@ -133,7 +137,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Step 3: Crop the detected bbox using ImageScript ────────────────
     console.log(`[verify-certificate] Cropping bbox: x=${bboxX} y=${bboxY} w=${bboxW} h=${bboxH}`);
-    const image = await Image.decode(imageBuffer);
+    const image = await Image.decode(new Uint8Array(imageBuffer));
 
     const cropW = Math.min(bboxW, image.width - bboxX);
     const cropH = Math.min(bboxH, image.height - bboxY);
@@ -146,9 +150,13 @@ Deno.serve(async (req: Request) => {
     console.log('[verify-certificate] Calling classifier model...');
     const classifierRes = await fetch(`${CLASSIFIER_URL}?api_key=${ROBOFLOW_API_KEY}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `image=${encodeURIComponent(croppedBase64)}`,
+      body: croppedBase64,
     });
+    
+    if (!classifierRes.ok) {
+      const errorText = await classifierRes.text();
+      throw new Error(`Roboflow classifier model failed: ${classifierRes.status} - ${errorText}`);
+    }
     const classifierData = await classifierRes.json();
     console.log('[verify-certificate] Classifier result:', JSON.stringify(classifierData));
 
