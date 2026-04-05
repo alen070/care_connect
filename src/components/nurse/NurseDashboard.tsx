@@ -359,35 +359,63 @@ function DocumentManager() {
         </div>
       </Card>
 
-      {/* ── NEW: Certificate Verification Section ── */}
-      <CertificateVerificationSection nurseId={user!.id} />
+      {/* Upload Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-4 border-2 border-dashed border-gray-200 hover:border-blue-400 transition-colors">
+          <div className="text-center">
+            <FileText className="w-8 h-8 text-blue-500 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-900">Certificate</p>
+            <label className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium cursor-pointer hover:bg-blue-700 transition-all">
+              <Upload className="w-3.5 h-3.5" /> Upload File
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUpload(e, 'certificate')} />
+            </label>
+          </div>
+        </Card>
 
+        <Card className="p-4 border-2 border-dashed border-gray-200 hover:border-emerald-400 transition-colors">
+          <div className="text-center">
+            <User className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-900">Govt ID Card</p>
+            <label className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium cursor-pointer hover:bg-emerald-700 transition-all">
+              <Upload className="w-3.5 h-3.5" /> Upload File
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUpload(e, 'government_id')} />
+            </label>
+          </div>
+        </Card>
 
-      {/* Uploaded Documents */}
+        <Card className="p-4 border-2 border-dashed border-gray-200 hover:border-purple-400 transition-colors">
+          <div className="text-center">
+            <Activity className="w-8 h-8 text-purple-500 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-900">Nursing License</p>
+            <label className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium cursor-pointer hover:bg-purple-700 transition-all">
+              <Upload className="w-3.5 h-3.5" /> Upload File
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUpload(e, 'license')} />
+            </label>
+          </div>
+        </Card>
+      </div>
+
+      {/* Existing Documents List */}
       {documents.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-lg font-semibold text-gray-900">Uploaded Documents ({documents.length})</h3>
-          {documents.map(doc => (
-            <Card key={doc.id} className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-gray-50 rounded-lg">
-                    <FileText className="w-5 h-5 text-gray-500" />
+          {documents.map((doc) => (
+            <Card key={doc.id} className="p-4 group hover:shadow-md transition-all">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-gray-50 rounded-xl">
+                    <FileText className="w-5 h-5 text-gray-400" />
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{doc.fileName}</p>
-                    <p className="text-xs text-gray-500 capitalize">{doc.documentType.replace('_', ' ')} · {new Date(doc.uploadedAt).toLocaleDateString()}</p>
+                    <p className="font-semibold text-gray-900">{doc.fileName}</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider">{doc.documentType.replace('_', ' ')}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {doc.aiAnalysis && (
-                    <Badge variant={doc.aiAnalysis.result === 'genuine' ? 'success' : doc.aiAnalysis.result === 'suspected_forgery' ? 'danger' : 'warning'}>
-                      {doc.aiAnalysis.result === 'genuine' ? '✓ Genuine' : doc.aiAnalysis.result === 'suspected_forgery' ? '⚠ Suspected' : '⏳ Pending'}
-                    </Badge>
-                  )}
+                  <Button variant="outline" size="sm" onClick={() => setSelectedDoc(doc)}>View Analysis</Button>
+                  <Button variant="danger" size="sm" onClick={() => deleteDoc(doc.id)}>Delete</Button>
                 </div>
               </div>
-
               {/* AI Analysis Summary */}
               {doc.aiAnalysis && doc.aiAnalysis.result !== 'pending' && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
