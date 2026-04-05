@@ -33,6 +33,7 @@ function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
   const [showLanding, setShowLanding] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [upgradeTimedOut, setUpgradeTimedOut] = useState(false);
 
   // Synchronize landing page visibility with auth state
   useEffect(() => {
@@ -57,6 +58,16 @@ function AppContent() {
     }
     prevAuth.current = isAuthenticated;
   }, [isAuthenticated]);
+
+  // Role Transition Safety: If the URL has an intended role but the user is still 'user',
+  // we wait a few seconds before giving up and showing the User Dashboard anyway.
+  useEffect(() => {
+    const urlRole = new URLSearchParams(window.location.search).get('careconnect_role');
+    if (urlRole && isAuthenticated && user?.role === 'user') {
+      const t = setTimeout(() => setUpgradeTimedOut(true), 3500);
+      return () => clearTimeout(t);
+    }
+  }, [user?.role, isAuthenticated]);
 
   // Show loading spinner while restoring session
   if (loading) {
@@ -89,7 +100,7 @@ function AppContent() {
     // the local user state hasn't caught up yet, stay in loading mode.
     const urlParams = new URLSearchParams(window.location.search);
     const urlRole = urlParams.get('careconnect_role');
-    if (urlRole && urlRole !== 'user' && role === 'user') {
+    if (urlRole && urlRole !== 'user' && role === 'user' && !upgradeTimedOut) {
       return <LoadingFallback />;
     }
 

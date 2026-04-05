@@ -119,18 +119,28 @@ function ProfileManager() {
   const [error, setError] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
+    if (!user?.id) return;
     setLoading(true);
     setError(null);
+
     try {
-      let p = await NurseProfileDB.getByUserId(user!.id);
+      // 1. Fetch with timeout (8 seconds) — prevents permanent hangs if Supabase is under load
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), 8000)
+      );
+
+      let p = await Promise.race([
+        NurseProfileDB.getByUserId(user.id),
+        timeoutPromise
+      ]) as NurseProfile | undefined;
       
-      // Auto-Repair/Creation if missing
+      // 2. Auto-Repair/Creation if missing
       if (!p) {
         console.log('[ProfileManager] Profile missing, creating default profile.');
         try {
             const newProfile = await NurseProfileDB.create({
-                userId: user!.id, specializations: [], experience: 0,
-                baseRate: 0, rateType: 'hourly', bio: '', location: user!.location || '',
+                userId: user.id, specializations: [], experience: 0,
+                baseRate: 0, rateType: 'hourly', bio: '', location: user.location || '',
                 serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
             });
             p = newProfile as any;
@@ -139,22 +149,26 @@ function ProfileManager() {
         }
       }
 
-      setProfile(p || undefined);
       if (p) {
+        setProfile(p);
         setForm({
           specializations: p.specializations.join(', '),
           experience: p.experience?.toString() || '',
           baseRate: p.baseRate?.toString() || '',
           rateType: (p.rateType as any) || 'hourly',
           bio: p.bio || '',
-          location: p.location || user!.location || '',
-          serviceAreas: p.serviceAreas.join(', '),
+          location: p.location || user.location || '',
+          serviceAreas: (p.serviceAreas || []).join(', '),
           availability: p.availability ?? true,
         });
       }
     } catch (err: any) {
       console.error('Failed to load profile:', err);
-      setError('Could not connect to database to load profile.');
+      if (err.message === 'REQUEST_TIMEOUT') {
+        setError('Connection is taking too long. Check your network and try again.');
+      } else {
+        setError('Could not connect to database to load profile.');
+      }
     } finally {
       setLoading(false);
     }

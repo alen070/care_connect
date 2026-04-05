@@ -109,9 +109,16 @@ CREATE OR REPLACE FUNCTION public.handle_user_update()
 RETURNS trigger AS $$
 DECLARE
   v_role text;
+  v_old_role text;
 BEGIN
   v_role := coalesce(new.raw_user_meta_data->>'role', old.raw_user_meta_data->>'role');
-  
+  v_old_role := old.raw_user_meta_data->>'role';
+
+  -- SECURE FIX: Prevent self-escalation to admin
+  IF v_role = 'admin' AND coalesce(v_old_role, '') != 'admin' THEN
+    RAISE EXCEPTION 'Security Policy Violation: Cannot self-escalate to admin.';
+  END IF;
+
   -- Update Profile
   UPDATE public.profiles SET
     name = coalesce(new.raw_user_meta_data->>'name', name),
@@ -126,10 +133,12 @@ BEGIN
     VALUES (new.id, 'pending')
     ON CONFLICT (user_id) DO NOTHING;
   ELSIF v_role = 'shelter' THEN
-    INSERT INTO public.shelters (name, address, email, shelter_user_id)
+    -- FIXED: Added default latitude/longitude to satisfy NOT NULL constraints
+    INSERT INTO public.shelters (name, address, latitude, longitude, email, shelter_user_id)
     VALUES (
       coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-      coalesce(new.raw_user_meta_data->>'location', ''),
+      coalesce(new.raw_user_meta_data->>'location', 'Unknown'),
+      0, 0, -- Default coordinates to prevent DB error
       new.email,
       new.id
     )

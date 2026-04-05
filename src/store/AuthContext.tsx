@@ -35,58 +35,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let profile = await UserDB.getById(session.user.id);
     console.log('[AuthContext] resolveUser — DB profile:', profile);
 
-    // 2. If trigger hasn't fired yet, poll briefly
+    // 2. If profile is missing from DB, do a quick poll (Max 1s total)
     if (!profile) {
       for (let i = 0; i < 3; i++) {
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 330));
         profile = await UserDB.getById(session.user.id);
         if (profile) break;
       }
     }
 
-    // 3. ROLE UPGRADE
-    // Check both localStorage AND URL params
+    // 3. ROLE UPGRADE (Fail-safe & Non-blocking)
     const urlParams = new URLSearchParams(window.location.search);
     const urlRole = urlParams.get('careconnect_role');
     const finalIntendedRole = urlRole || intendedRole;
 
+    // IMMEDIATE CLEANUP — prevents App.tsx from hanging on the safety-check
     if (finalIntendedRole && finalIntendedRole !== 'user') {
-      const currentRole = profile?.role || meta?.role || 'user';
-      if (currentRole === 'user' || currentRole === '') {
-        console.log('[AuthContext] ROLE UPGRADE DETECTED:', currentRole, '→', finalIntendedRole);
-        try {
-          // A. Update Supabase User Metadata (Triggers handle_user_update in Postgres)
-          const { error: metaError } = await supabase.auth.updateUser({
-            data: { role: finalIntendedRole }
-          });
-          
-          if (metaError) throw metaError;
+      clearIntendedRole();
+      if (urlRole) window.history.replaceState({}, '', window.location.origin);
+    }
 
-          // B. Poll for profile update (ensure DB trigger has completed)
-          // This prevents the UI from rendering the "User" dashboard for a flash.
-          for (let i = 0; i < 5; i++) {
-            await new Promise(r => setTimeout(r, 600));
+    if (finalIntendedRole && finalIntendedRole !== 'user') {
+      // Use profile role, fallback to metadata role, finally default to 'user'
+      const currentRole = profile?.role || meta?.role || 'user';
+      
+      if (currentRole === 'user' || currentRole === '') {
+        console.log('[AuthContext] Role Migration Required:', currentRole, '→', finalIntendedRole);
+        try {
+          // A. Update Supabase Metadata
+          await supabase.auth.updateUser({ data: { role: finalIntendedRole } });
+
+          // B. Extremely Fast Poll (Max 0.6s total)
+          for (let i = 0; i < 3; i++) {
+            await new Promise(r => setTimeout(r, 200));
             profile = await UserDB.getById(session.user.id);
-            if (profile?.role === finalIntendedRole) {
-              console.log('[AuthContext] Trigger sync confirmed role:', profile.role);
-              break;
-            }
+            if (profile?.role === finalIntendedRole) break;
           }
-          
-          // C. Secondary direct update as fallback (safety net for slow triggers)
-          if (profile?.role !== finalIntendedRole) {
-            console.warn('[AuthContext] Trigger sync slow or failed. Performing manual DB update.');
-            profile = await UserDB.update(session.user.id, { role: finalIntendedRole as any });
+
+          // C. Forced Fallback — only if migration failed/slow
+          if (!profile || profile.role !== finalIntendedRole) {
+            console.warn('[AuthContext] Migration slow. Forcing DB update.');
+            const updated = await UserDB.update(session.user.id, { 
+              role: finalIntendedRole as any,
+              email: session.user.email
+            });
+            if (updated) profile = updated;
           }
-          
-          console.log('[AuthContext] Role upgrade finalized. Profile:', profile);
         } catch (e) {
-          console.error('[AuthContext] Role upgrade failed:', e);
+          console.error('[AuthContext] Migration logic failed:', e);
         }
       }
-      clearIntendedRole();
-      // Clean up URL if needed
-      if (urlRole) window.history.replaceState({}, '', window.location.origin);
     }
 
     // 4. If we still don't have a profile at all, create a stub
