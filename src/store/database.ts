@@ -291,18 +291,16 @@ export const NurseProfileDB = {
 
   search: async (location?: string, service?: string): Promise<NurseProfile[]> => {
     // Fetch specifically approved nurses for the user-facing search
-    const [{ data, error }, { data: activeBookings }] = await Promise.all([
-      supabase.from('nurse_profiles').select('*').eq('verification_status', 'approved'),
-      supabase.from('bookings').select('nurse_id').eq('status', 'accepted')
-    ]);
+    // We only filter out nurses who have an accepted booking ON THE SAME DATE.
+    // However, for now, let's just fetch all approved nurses and let the clinician decide availability.
+    const { data, error } = await supabase.from('nurse_profiles').select('*').eq('verification_status', 'approved');
 
     if (error) {
       console.error('Nurse search error:', error);
       return [];
     }
 
-    const busyNurseIds = new Set(activeBookings?.map(b => b.nurse_id) || []);
-    let results = (data || []).map(mapNurseProfile).filter(p => !busyNurseIds.has(p.userId));
+    let results = (data || []).map(mapNurseProfile);
 
     if (location) {
       const loc = location.toLowerCase();
@@ -440,8 +438,13 @@ export const BookingDB = {
   },
 
   getByNurseId: async (nurseId: string): Promise<Booking[]> => {
+    console.log('[BookingDB] Fetching bookings for nurse_id:', nurseId);
     const { data, error } = await supabase.from('bookings').select('*').eq('nurse_id', nurseId);
-    if (error) return [];
+    if (error) {
+      console.error('[BookingDB] Fetch error:', error);
+      return [];
+    }
+    console.log('[BookingDB] Found records:', data?.length);
     return (data || []).map(mapBooking);
   },
 
@@ -472,11 +475,30 @@ export const BookingDB = {
       nurse_phone: nursePhone,
       user_phone: userPhone,
     };
+    
+    // Check if user_phone exists in schema cache (optional but good)
+    console.log('[BookingDB] Creating booking with row:', row);
     const { data, error } = await supabase.from('bookings').insert(row).select().single();
-    if (error || !data) {
-      console.error('BookingDB.create:', error);
-      return { ...booking, id: 'temp', createdAt: new Date().toISOString() } as Booking;
+    
+    if (error) {
+      console.error('[BookingDB] Primary insert failed:', error);
+      // Fallback: If user_phone column is missing, retry without it
+      if (error.message?.includes('column') || error.message?.includes('schema cache')) {
+        console.warn('[BookingDB] Missing user_phone column, retrying legacy insert...');
+        const legacy = { ...row } as any;
+        delete legacy.user_phone;
+        const { data: lData, error: lErr } = await supabase.from('bookings').insert(legacy).select().single();
+        if (lErr) {
+           console.error('[BookingDB] Legacy retry failed:', lErr);
+           throw lErr;
+        }
+        return mapBooking(lData!);
+      }
+      throw error;
     }
+    
+    if (!data) throw new Error('Booking created but no data returned');
+    console.log('[BookingDB] Successfully created:', data.id);
     return mapBooking(data);
   },
 
@@ -747,13 +769,26 @@ export const NotificationDB = {
   },
 
   create: async (notif: { userId: string, title: string, message: string, type: 'info' | 'success' | 'warning' | 'error', link?: string }): Promise<void> => {
-    await supabase.from('notifications').insert({
+    const payload = {
       user_id: notif.userId,
       title: notif.title,
       message: notif.message,
       type: notif.type,
       link: notif.link,
-    });
+    };
+
+    const { error } = await supabase.from('notifications').insert(payload);
+    
+    if (error) {
+      console.error('NotificationDB.create error:', error);
+      // Fallback: If title or link columns are missing, retry without them
+      if (error.message?.includes('column') || error.message?.includes('schema cache')) {
+        const legacy = { ...payload } as any;
+        delete legacy.title;
+        delete legacy.link;
+        await supabase.from('notifications').insert(legacy);
+      }
+    }
   }
 };
 

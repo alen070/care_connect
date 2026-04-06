@@ -6,16 +6,16 @@ import { Bell, CheckCircle, AlertTriangle, Info, Check } from 'lucide-react';
 import type { Notification } from '@/types';
 import { cn } from '@/utils/cn';
 
-export function NurseNotifications() {
+export function NurseNotifications({ active }: { active?: boolean }) {
     const { user } = useAuth();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (user) {
+        if (user && active !== false) {
             loadNotifications();
         }
-    }, [user]);
+    }, [user, active]);
 
     const loadNotifications = async () => {
         const data = await NotificationDB.getByUserId(user!.id);

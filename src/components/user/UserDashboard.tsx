@@ -304,12 +304,12 @@ function NurseSearch() {
   const [results, setResults] = useState<NurseProfile[]>([]);
   const [filteredResults, setFilteredResults] = useState<NurseProfile[]>([]);
   const [nurseData, setNurseData] = useState<Record<string, { name: string, photo?: string }>>({});
-  const [, setRefresh] = useState(0);
+  const [refresh, setRefresh] = useState(0);
 
   // Search nurses (async)
   useEffect(() => {
     NurseProfileDB.search(location || undefined, service || undefined).then(setResults);
-  }, [location, service, setRefresh]);
+  }, [location, service, refresh]);
 
   // Apply UI Filters
   useEffect(() => {
@@ -612,6 +612,7 @@ function BookingForm({ nurse, userId, userName, nurseName, onComplete }: {
     notes: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const totalDays = useMemo(() => {
     if (!form.startDate || !form.endDate) return 0;
@@ -654,6 +655,9 @@ function BookingForm({ nurse, userId, userName, nurseName, onComplete }: {
       });
 
       onComplete();
+    } catch (err: any) {
+      console.error('Booking failed:', err);
+      setError(err.message || 'Failed to create booking. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -661,6 +665,11 @@ function BookingForm({ nurse, userId, userName, nurseName, onComplete }: {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {error && (
+        <div className="p-3 bg-red-50 text-red-700 rounded-xl text-sm font-medium border border-red-100 animate-shake">
+          {error}
+        </div>
+      )}
       <div className="bg-blue-50 rounded-xl p-4 flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold">
           {nurseName[0]}

@@ -61,7 +61,7 @@ export function NurseDashboard({ onGoToLanding }: { onGoToLanding: () => void })
     >
       <div className="w-full">
         <div style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
-          {loadedTabs.includes('overview') && <NurseHome onNavigate={handleTabChange} />}
+          {loadedTabs.includes('overview') && <NurseHome onNavigate={handleTabChange} active={activeTab === 'overview'} />}
         </div>
         <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
           {loadedTabs.includes('profile') && <ProfileManager />}
@@ -70,7 +70,7 @@ export function NurseDashboard({ onGoToLanding }: { onGoToLanding: () => void })
           {loadedTabs.includes('documents') && <DocumentManager />}
         </div>
         <div style={{ display: activeTab === 'bookings' ? 'block' : 'none' }}>
-          {loadedTabs.includes('bookings') && <BookingManager />}
+          {loadedTabs.includes('bookings') && <BookingManager active={activeTab === 'bookings'} />}
         </div>
         <div style={{ display: activeTab === 'schedule' ? 'block' : 'none' }}>
           {loadedTabs.includes('schedule') && <NurseSchedule />}
@@ -85,7 +85,7 @@ export function NurseDashboard({ onGoToLanding }: { onGoToLanding: () => void })
           {loadedTabs.includes('report') && <HomelessReport />}
         </div>
         <div style={{ display: activeTab === 'notifications' ? 'block' : 'none' }}>
-          {loadedTabs.includes('notifications') && <NurseNotifications />}
+          {loadedTabs.includes('notifications') && <NurseNotifications active={activeTab === 'notifications'} />}
         </div>
         <div style={{ display: activeTab === 'account' ? 'block' : 'none' }}>
           {loadedTabs.includes('account') && <NurseAccount />}
@@ -703,13 +703,13 @@ function AnalysisDetail({ analysis, fileName, fileData }: { analysis: DocumentAn
 
 /* ─────────────────────────────────────────── */
 
-function BookingManager() {
+function BookingManager({ active }: { active?: boolean }) {
   const { user } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
 
   useEffect(() => {
-    if (user) BookingDB.getByNurseId(user.id).then(setBookings);
-  }, [user]);
+    if (user && active !== false) BookingDB.getByNurseId(user.id).then(setBookings);
+  }, [user, active]);
 
   const refresh = () => {
     if (user) BookingDB.getByNurseId(user.id).then(setBookings);

@@ -180,10 +180,10 @@ export function AdminAIMonitor() {
                 </div>
             )}
 
-            {/* Document Detail Modal (Full Forensic View for Admin) */}
+            {/* Document Detail Modal (Full Forensic View) */}
             {selectedDoc && (
                 <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex justify-center items-start overflow-y-auto p-4 md:p-8" onClick={() => setSelectedDoc(null)}>
-                    <div className="max-w-2xl w-full bg-white rounded-2xl p-6 my-auto space-y-6 shadow-2xl relative" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                    <div className="max-w-4xl w-full bg-white rounded-2xl p-6 my-auto space-y-6 shadow-2xl relative" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                         <div className="flex items-center justify-between">
                             <h3 className="text-xl font-bold text-gray-900">Forensic Investigation</h3>
                             <button onClick={() => setSelectedDoc(null)} className="text-gray-400 hover:text-gray-600">
@@ -195,11 +195,11 @@ export function AdminAIMonitor() {
                         <div className="grid grid-cols-3 gap-4">
                             <div className="bg-gray-50 rounded-xl p-3">
                                 <p className="text-xs text-gray-500 uppercase font-bold">Document Type</p>
-                                <p className="text-sm font-semibold">{selectedDoc.documentType}</p>
+                                <p className="text-sm font-semibold text-gray-900">{selectedDoc.documentType}</p>
                             </div>
                             <div className="bg-gray-50 rounded-xl p-3">
                                 <p className="text-xs text-gray-500 uppercase font-bold">Nurse Name</p>
-                                <p className="text-sm font-semibold">{nurseNames[selectedDoc.nurseId] || 'Unknown'}</p>
+                                <p className="text-sm font-semibold text-gray-900">{nurseNames[selectedDoc.nurseId] || 'Unknown'}</p>
                             </div>
                             <div className="bg-gray-50 rounded-xl p-3">
                                 <p className="text-xs text-gray-500 uppercase font-bold">AI Trust Score</p>
@@ -209,58 +209,61 @@ export function AdminAIMonitor() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Left: Image Preview */}
+                        {/* Stacked Layout for Full-Width Viewing */}
+                        <div className="space-y-8">
+                            {/* Full-Width Document Scan */}
                             <div className="space-y-3">
-                                <p className="text-sm font-bold text-gray-700 underline decoration-indigo-200">Document Scan</p>
-                                <div className="border border-gray-200 rounded-xl overflow-hidden bg-white cursor-zoom-in group shadow-inner"
-                                     onClick={() => setViewerOpen(true)}>
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm font-bold text-gray-700 underline decoration-indigo-200">Full Document Scan</p>
+                                    <p className="text-xs text-gray-400">Click to enlarge</p>
+                                </div>
+                                <div className="cursor-zoom-in group w-full text-center" onClick={() => setViewerOpen(true)}>
                                     <img 
                                         src={selectedDoc.fileData} 
                                         alt="Document" 
-                                        className="w-full h-auto max-h-[500px] object-contain transition-transform duration-500 group-hover:scale-[1.02]" 
+                                        className="mx-auto h-auto max-h-[700px] object-contain rounded-xl transition-all duration-500 group-hover:brightness-110 shadow-md" 
                                     />
                                 </div>
-                                <p className="text-xs text-gray-400 text-center">Click image to enlarge</p>
                             </div>
 
-                            {/* Right: Technical Metrics */}
-                            <div className="space-y-4">
-                                <p className="text-sm font-bold text-gray-700 underline decoration-indigo-200">Forensic Metrics</p>
-                                <div className="space-y-3">
-                                    {[
-                                        { label: 'Edge Consistency', value: selectedDoc.aiAnalysis?.edgeConsistency || 0 },
-                                        { label: 'Texture Analysis', value: selectedDoc.aiAnalysis?.textureAnalysis || 0 },
-                                        { label: 'Compression Purity', value: selectedDoc.aiAnalysis?.compressionArtifacts || 0 },
-                                        { label: 'Font Authenticity', value: selectedDoc.aiAnalysis?.fontConsistency || 0 },
-                                    ].map(m => (
-                                        <div key={m.label} className="space-y-1">
-                                            <div className="flex justify-between text-xs">
-                                                <span>{m.label}</span>
-                                                <span className="font-bold">{Math.round(m.value * 100)}%</span>
+                            {/* Metrics & Red Flags in a cleaner Grid below */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-gray-100">
+                                <div className="space-y-4">
+                                    <p className="text-sm font-bold text-gray-700 underline decoration-indigo-200">Forensic Metrics</p>
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                                        {[
+                                            { label: 'Edge Consistency', value: selectedDoc.aiAnalysis?.edgeConsistency || 0 },
+                                            { label: 'Texture Analysis', value: selectedDoc.aiAnalysis?.textureAnalysis || 0 },
+                                            { label: 'Compression Purity', value: selectedDoc.aiAnalysis?.compressionArtifacts || 0 },
+                                            { label: 'Font Authenticity', value: selectedDoc.aiAnalysis?.fontConsistency || 0 },
+                                        ].map(m => (
+                                            <div key={m.label} className="space-y-1.5">
+                                                <div className="flex justify-between text-xs">
+                                                    <span className="text-gray-500">{m.label}</span>
+                                                    <span className="font-bold">{Math.round(m.value * 100)}%</span>
+                                                </div>
+                                                <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className={cn('h-full transition-all', m.value >= 0.7 ? 'bg-emerald-500' : 'bg-red-500')} 
+                                                         style={{ width: `${m.value * 100}%` }} />
+                                                </div>
                                             </div>
-                                            <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                                                <div className={cn('h-full transition-all', m.value >= 0.7 ? 'bg-emerald-500' : 'bg-red-500')} 
-                                                     style={{ width: `${m.value * 100}%` }} />
-                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {selectedDoc.aiAnalysis?.anomalies && selectedDoc.aiAnalysis.anomalies.length > 0 && (
+                                        <div className="bg-red-50 rounded-xl p-4 border border-red-100 h-full">
+                                            <h4 className="text-sm font-bold text-red-900 mb-2 flex items-center gap-2">
+                                                <AlertTriangle className="w-4 h-4" /> Detected Red Flags
+                                            </h4>
+                                            <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+                                                {selectedDoc.aiAnalysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
+                                            </ul>
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
                             </div>
-                        </div>
-
-                        {/* Anomalies and OCR */}
-                        <div className="space-y-4">
-                             {selectedDoc.aiAnalysis?.anomalies && selectedDoc.aiAnalysis.anomalies.length > 0 && (
-                                <div className="bg-red-50 rounded-xl p-4 border border-red-100">
-                                    <h4 className="text-sm font-bold text-red-900 mb-2 flex items-center gap-2">
-                                        <AlertTriangle className="w-4 h-4" /> Detected Red Flags
-                                    </h4>
-                                    <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
-                                        {selectedDoc.aiAnalysis.anomalies.map((a, i) => <li key={i}>{a}</li>)}
-                                    </ul>
-                                </div>
-                             )}
 
                             <div className="bg-gray-50 rounded-xl p-4">
                                 <h4 className="text-sm font-bold text-gray-900 mb-2">OCR Data Extraction</h4>

@@ -7,7 +7,7 @@ import type { NurseProfile, Booking, NurseDocument } from '@/types';
 import { cn } from '@/utils/cn';
 import { calculateBookingAmount } from '@/utils/booking';
 
-export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void }) {
+export function NurseHome({ onNavigate, active }: { onNavigate: (tab: string) => void, active?: boolean }) {
     const { user } = useAuth();
     const [profile, setProfile] = useState<NurseProfile | undefined>(undefined);
     const [bookings, setBookings] = useState<Booking[]>([]);
@@ -15,7 +15,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (!user) return;
+        if (!user || active === false) return;
 
         Promise.all([
             NurseProfileDB.getByUserId(user.id),
@@ -44,7 +44,7 @@ export function NurseHome({ onNavigate }: { onNavigate: (tab: string) => void })
             setDocuments(docsData);
             setLoading(false);
         });
-    }, [user]);
+    }, [user, active]);
 
     if (loading) {
         return (
