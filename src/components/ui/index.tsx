@@ -287,7 +287,7 @@ export function Spinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 export function ProgressBar({ value, max = 100, color = 'blue' }: {
   value: number;
   max?: number;
-  color?: 'blue' | 'green' | 'red' | 'amber';
+  color?: 'blue' | 'green' | 'red' | 'amber' | 'purple';
 }) {
   const percentage = Math.min(100, (value / max) * 100);
   const colors = {
@@ -295,6 +295,7 @@ export function ProgressBar({ value, max = 100, color = 'blue' }: {
     green: 'bg-emerald-500',
     red: 'bg-red-500',
     amber: 'bg-amber-500',
+    purple: 'bg-purple-500',
   };
 
   return (
