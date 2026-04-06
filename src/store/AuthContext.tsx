@@ -27,117 +27,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * so the logic is never skipped.
    */
   const resolveUserFromSession = async (session: any): Promise<User | null> => {
-    const meta = session.user.user_metadata;
-    const intendedRole = getIntendedRole();
-    console.log('[AuthContext] resolveUser — meta:', meta, 'intendedRole:', intendedRole);
+    const fetchProfile = async (): Promise<User | null> => {
+      const meta = session.user.user_metadata;
+      const appMeta = session.user.app_metadata;
+      const intendedRole = getIntendedRole();
+      console.log('[AuthContext] resolveUser searching DB for:', session.user.id);
 
-    // 1. Try to fetch existing profile (the Supabase trigger may have created one with role='user')
-    let profile = await UserDB.getById(session.user.id);
-    console.log('[AuthContext] resolveUser — DB profile:', profile);
-
-    // 2. If profile is missing from DB, do a quick poll (Max 1s total)
-    if (!profile) {
-      for (let i = 0; i < 3; i++) {
-        await new Promise(r => setTimeout(r, 330));
-        profile = await UserDB.getById(session.user.id);
-        if (profile) break;
-      }
-    }
-
-    // 3. ROLE UPGRADE (Fail-safe & Non-blocking)
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlRole = urlParams.get('careconnect_role');
-    const finalIntendedRole = urlRole || intendedRole;
-
-    // IMMEDIATE CLEANUP — prevents App.tsx from hanging on the safety-check
-    if (finalIntendedRole && finalIntendedRole !== 'user') {
-      clearIntendedRole();
-      if (urlRole) window.history.replaceState({}, '', window.location.origin);
-    }
-
-    if (finalIntendedRole && finalIntendedRole !== 'user') {
-      // Use profile role, fallback to metadata role, finally default to 'user'
-      const currentRole = profile?.role || meta?.role || 'user';
+      // 1. Fetch profile from our profiles table
+      let profile = await UserDB.getById(session.user.id);
       
-      if (currentRole === 'user' || currentRole === '') {
-        console.log('[AuthContext] Role Migration Required:', currentRole, '→', finalIntendedRole);
-        try {
-          // A. Update Supabase Metadata
-          await supabase.auth.updateUser({ data: { role: finalIntendedRole } });
-
-          // B. Extremely Fast Poll (Max 0.6s total)
-          for (let i = 0; i < 3; i++) {
-            await new Promise(r => setTimeout(r, 200));
-            profile = await UserDB.getById(session.user.id);
-            if (profile?.role === finalIntendedRole) break;
-          }
-
-          // C. Forced Fallback — only if migration failed/slow
-          if (!profile || profile.role !== finalIntendedRole) {
-            console.warn('[AuthContext] Migration slow. Forcing DB update.');
-            const updated = await UserDB.update(session.user.id, { 
-              role: finalIntendedRole as any,
-              email: session.user.email
-            });
-            if (updated) profile = updated;
-          }
-        } catch (e) {
-          console.error('[AuthContext] Migration logic failed:', e);
+      // 2. Aggressive Poll if missing (up to 4s total) - DB triggers can be slow
+      if (!profile) {
+        console.warn('[AuthContext] Profile not in DB yet, polling...');
+        for (let i = 0; i < 4; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          profile = await UserDB.getById(session.user.id);
+          if (profile) break;
         }
       }
-    }
 
-    // 4. If we still don't have a profile at all, create a stub
-    if (!profile) {
-      profile = {
+      // 3. Last Resort Fallback (Stub)
+      // We try to be as smart as possible to avoid downgrading
+      if (!profile) {
+        console.error('[AuthContext] Profile STILL missing from DB. Using session identity.');
+        const resolvedRole = (intendedRole as any) || 
+                           (meta?.role as any) || 
+                           (appMeta?.role as any) || 
+                           'user';
+
+        profile = {
+          id: session.user.id,
+          email: session.user.email!,
+          name: meta?.name || meta?.full_name || 'CareConnect User',
+          role: resolvedRole,
+          phone: meta?.phone || '',
+          location: meta?.location || '',
+          created_at: session.user.created_at
+        } as User;
+      }
+
+      // 4. Resource Repairs (Nurse/Shelter)
+      const role = profile.role;
+      if (role === 'nurse') {
+        NurseProfileDB.getByUserId(profile.id).then(n => { 
+          if(!n && profile) NurseProfileDB.create({
+            userId: profile.id, specializations: [], experience: 0, baseRate: 0,
+            rateType: 'hourly', bio: '', location: profile.location || '',
+            serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
+          }); 
+        }).catch(() => {});
+      } else if (role === 'shelter') {
+        ShelterDB.getByUserId(profile.id).then(s => { 
+          if(!s && profile) ShelterDB.create({
+            name: profile.name + ' Shelter', address: profile.location || '',
+            latitude: 0, longitude: 0, phone: profile.phone || '',
+            email: profile.email, capacity: 50, shelterUserId: profile.id
+          }); 
+        }).catch(() => {});
+      }
+
+      return profile;
+    };
+
+    const timeoutPromise = new Promise<User | null>((_, reject) => 
+      setTimeout(() => reject(new Error('DATABASE_TIMEOUT')), 10000)
+    );
+
+    try {
+      return await Promise.race([fetchProfile(), timeoutPromise]);
+    } catch (e) {
+      console.error('[AuthContext] resolveUser failed/timed out:', e);
+      // Even in total failure, try to preserve the identity from the JWT
+      const meta = session.user.user_metadata;
+      const appMeta = session.user.app_metadata;
+      return {
         id: session.user.id,
         email: session.user.email!,
-        name: meta?.name || meta?.full_name || 'New User',
-        role: (intendedRole as any) || (meta?.role as any) || 'user',
-        phone: meta?.phone || '',
-        location: meta?.location || '',
+        name: meta?.name || meta?.full_name || 'Local User',
+        role: (meta?.role as any) || (appMeta?.role as any) || 'user',
         created_at: session.user.created_at
       } as User;
     }
-
-    // 5. Create sub-profiles (nurse_profiles / shelters) if missing — FAST & PARALLEL
-    const role = profile.role;
-    try {
-      if (role === 'nurse') {
-        // We don't necessarily need to block the whole user resolution for this
-        // But for consistency we check it
-        NurseProfileDB.getByUserId(profile.id).then(async (n) => {
-          if (!n) {
-            console.log('[AuthContext] Creating missing nurse_profile in background');
-            await NurseProfileDB.create({
-              userId: profile!.id, specializations: [], experience: 0, baseRate: 0,
-              rateType: 'hourly', bio: '', location: profile!.location || '',
-              serviceAreas: [], availability: true, verificationStatus: 'pending', documents: []
-            });
-          }
-        }).catch(console.error);
-      } else if (role === 'shelter') {
-        ShelterDB.getByUserId(profile.id).then(async (s) => {
-          if (!s) {
-            const orphan = await ShelterDB.getByEmail(profile!.email);
-            if (orphan && !orphan.shelterUserId) {
-              await ShelterDB.update(orphan.id, { shelterUserId: profile!.id });
-            } else if (!orphan) {
-              await ShelterDB.create({
-                name: (meta?.name || profile!.name || 'New') + ' Shelter',
-                address: profile!.location || '',
-                latitude: 0, longitude: 0, phone: profile!.phone || '',
-                email: profile!.email, capacity: 50, shelterUserId: profile!.id
-              });
-            }
-          }
-        }).catch(console.error);
-      }
-    } catch (e) {
-      console.warn('[AuthContext] Sub-profile repair failed (non-critical):', e);
-    }
-
-    return profile;
   };
 
   // Initialize database and session
@@ -190,22 +160,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Login timed out. Your connection to Supabase is too slow. Please check your network and try again.')), 60000)
+      setTimeout(() => reject(new Error('Login is taking longer than usual. This can happen if the project is "cold" or your network is slow. Please try again in a few seconds.')), 15000)
     );
 
     try {
       console.log('[AuthContext] Waiting for Supabase response...');
-      const { data, error }: any = await Promise.race([loginPromise, timeoutPromise]);
+      const { error }: any = await Promise.race([loginPromise, timeoutPromise]);
 
-      console.log('[AuthContext] Login response:', { data, error });
-
-      if (error) return { success: false, error: error.message };
-
-      if (data.user) {
-        const profile = await UserDB.getById(data.user.id);
-        console.log('[AuthContext] Profile after login:', profile);
-        if (profile) setUser(profile);
+      if (error) {
+        console.error('[AuthContext] Login error:', error);
+        return { success: false, error: error.message };
       }
+
+      // We DON'T manually setUser(profile) here anymore.
+      // Why? Because supabase.auth.onAuthStateChange(event, session) will fire 
+      // with event='SIGNED_IN' immediately after signInWithPassword succeeds.
+      // That listener will call resolveUserFromSession and setUser(profile).
+      // Rationale: Reduces redundant DB calls and potential race conditions.
+
       return { success: true };
     } catch (err: any) {
       console.error('[AuthContext] Login catch block:', err);
